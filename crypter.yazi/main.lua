@@ -166,6 +166,42 @@ local function lock(open_path)
 	end
 end
 
+-- Write the password to a fresh, user-only scratch file and return its path.
+-- Uses the native fs.access() API instead of shelling out through `sh -c`:
+--   - create_new(true) atomically fails if the path already exists, so there
+--     is no window where a pre-existing file/symlink at that path could be
+--     reused or raced.
+--   - The file is opened directly by this process, never passed through an
+--     intermediate shell, so there's nothing for `ya.quote` to need to
+--     protect in the first place.
+-- Falls back to $XDG_RUNTIME_DIR (per-user, 0700, usually tmpfs) and only
+-- drops to /tmp if that's unset.
+local function write_passfile(password)
+	local runtime_dir = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
+
+	for _ = 1, 5 do
+		local candidate = string.format("%s/crypter-passfile-%d", runtime_dir, math.random(100000, 999999))
+		local url = Url(candidate)
+
+		local fd, err = fs.access():write(true):create_new(true):open(url)
+		if fd then
+			local ok, werr = fd:write_all(password)
+			fd:flush()
+			if not ok then
+				fs.remove("file", url)
+				return nil, werr
+			end
+			return candidate
+		elseif err and err.kind ~= "AlreadyExists" then
+			return nil, err
+		end
+		-- AlreadyExists: extremely unlikely collision on the random suffix,
+		-- just try again with a new name.
+	end
+
+	return nil, Err("Failed to allocate a scratch passfile after 5 attempts")
+end
+
 -- Unlock (mount) encrypted volume with password retry
 local function unlock(locked_path, open_path, max_retries)
 	local expanded_locked = expand_path(locked_path)
@@ -219,25 +255,9 @@ local function unlock(locked_path, open_path, max_retries)
 
 		attempts = attempts + 1
 
-		-- Create a secure temporary file for the password.
-		-- Prefer $XDG_RUNTIME_DIR (user-only, tmpfs-backed) over the
-		-- shared /tmp pool that os.tmpname() falls back to.
-		local runtime_dir = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
-		local temp_file = string.format("%s/crypter-passfile-%d", runtime_dir, math.random(100000, 999999))
-
-		-- Write password to temp file with restricted permissions
-		local write_success = Command("sh")
-			:arg({ "-c", string.format(
-				"umask 077 && printf '%%s' %s > %s",
-				ya.quote(password),
-				ya.quote(temp_file)
-			) })
-			:spawn()
-			:wait()
-
-		if not write_success or not write_success.success then
-			notify("Failed to create secure password file", "error")
-			os.remove(temp_file)
+		local temp_file, write_err = write_passfile(password)
+		if not temp_file then
+			notify(string.format("Failed to create secure password file: %s", tostring(write_err)), "error")
 			return false
 		end
 
@@ -250,7 +270,7 @@ local function unlock(locked_path, open_path, max_retries)
 			:wait()
 
 		-- Always remove the temp file immediately
-		os.remove(temp_file)
+		fs.remove("file", Url(temp_file))
 
 		if result and result.success then
 			notify("Unlocked successfully", "info")
@@ -258,7 +278,7 @@ local function unlock(locked_path, open_path, max_retries)
 		else
 			-- Parse and handle the error
 			local error_msg = parse_gocryptfs_error(result.stderr)
-			
+
 			-- If it's not a password error, show the error and exit
 			if error_msg ~= "incorrect_password" then
 				notify(error_msg, "error")
@@ -282,7 +302,7 @@ local function toggle(locked_path, open_path, max_retries)
 
 	-- Check if currently mounted
 	local mounted = is_mounted(expanded_open)
-	
+
 	if mounted then
 		-- Currently unlocked, so lock it
 		return lock(open_path)

@@ -37,16 +37,19 @@ return {
 		local status, err =
 			Command("wl-copy"):arg("--type"):arg("text/uri-list"):arg(file_list_formatted):spawn():wait()
 
-		if status or status.succes then
+		-- NOTE: status.success is the documented field. The previous version
+		-- of this check used "status.succes" (typo) combined with `status or`
+		-- instead of `status and`, which meant the success notification could
+		-- fire any time the command merely spawned, regardless of whether
+		-- wl-copy actually succeeded.
+		if status and status.success then
 			ya.notify({
 				title = "System Clipboard",
-				content = "Succesfully copied the file(s) to system clipboard",
+				content = "Successfully copied the file(s) to system clipboard",
 				level = "info",
 				timeout = 5,
 			})
-		end
-
-		if not status or not status.success then
+		else
 			ya.notify({
 				title = "System Clipboard",
 				content = string.format("Could not copy selected file(s) %s", status and status.code or err),

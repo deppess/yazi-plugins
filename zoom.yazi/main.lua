@@ -48,6 +48,14 @@ local function canvas(area)
 		math.min(rt.preview.max_height, math.floor(area.h * ch))
 end
 
+-- Build a tmpfs-backed scratch path for the resized JPEG rather than relying
+-- on os.tmpname(), which drops into the shared, world-readable /tmp pool.
+-- $XDG_RUNTIME_DIR is per-user and 0700 on virtually every modern Linux setup.
+local function scratch_path()
+	local runtime_dir = os.getenv("XDG_RUNTIME_DIR") or os.getenv("TMPDIR") or "/tmp"
+	return string.format("%s/yazi-zoom-%d-%d.jpg", runtime_dir, ya.uid and ya.uid() or 0, math.random(100000, 999999))
+end
+
 local function peek(_, job)
 	local url = job.file.url
 	local info, err = ya.image_info(url)
@@ -76,7 +84,7 @@ local function peek(_, job)
 		end
 	end
 
-	local tmp = os.tmpname()
+	local tmp = scratch_path()
 	-- stylua: ignore
 	local output, err = Command("magick"):arg {
 		tostring(job.file.path),
@@ -87,11 +95,19 @@ local function peek(_, job)
 	}:output()
 
 	if not output then
-		end_(job, Err("Failed to start `magick`, error: %s", err))
+		os.remove(tmp)
+		return end_(job, Err("Failed to start `magick`, error: %s", err))
 	elseif not output.status.success then
-		end_(job, Err("`magick` exited with error code %s: %s", output.status.code, output.stderr))
+		os.remove(tmp)
+		return end_(job, Err("`magick` exited with error code %s: %s", output.status.code, output.stderr))
 	elseif sync() then
 		ya.image_show(Url(tmp), job.area)
+		-- The scratch file is no longer needed once the image has been
+		-- handed off to the renderer; clean it up so /tmp doesn't slowly
+		-- fill with one stray JPEG per zoom action.
+		os.remove(tmp)
+	else
+		os.remove(tmp)
 	end
 	end_(job)
 end

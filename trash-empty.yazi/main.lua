@@ -1,5 +1,10 @@
 --- @since 25.5.31
--- Clear ALL trash volumes system-wide - no prompts, instant action
+-- Clear ALL trash volumes system-wide - no prompts, instant action.
+--
+-- WARNING: this clears the XDG trash AND every .Trash-* directory found at
+-- the root of every currently mounted volume (external drives, network
+-- shares, anything mounted right now) -- not just your home trash. There is
+-- no confirmation prompt by design. See README for details.
 
 local M = {}
 
@@ -116,7 +121,7 @@ local function find_trash_dirs(mount)
 end
 
 -- Collect every trash location on the system
--- Returns: xdg_trash path (string), raw_dirs (list of .Trash-* paths to rm -rf)
+-- Returns: xdg_trash path (string), raw_dirs (list of .Trash-* paths to remove)
 local function collect_all_trash()
 	local home = os.getenv("HOME")
 	local xdg_trash = home .. "/.local/share/Trash"
@@ -162,6 +167,11 @@ end
 
 -- Clear all trash
 local function clear_trash()
+	if ya.target_os() ~= "linux" then
+		notify("✗ This plugin only supports Linux (uses findmnt/trash-cli)", "error")
+		return false
+	end
+
 	if not is_command_available("trash-empty") then
 		notify("✗ trash-cli not installed", "error")
 		return false
@@ -185,22 +195,14 @@ local function clear_trash()
 		return false
 	end
 
-	-- Nuke the XDG trash dir itself so it's fully gone
-	Command("sh")
-		:arg({ "-c", string.format("rm -rf %s", ya.quote(xdg_trash)) })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:spawn()
-		:wait()
+	-- Remove the XDG trash dir itself so it's fully gone.
+	-- fs.remove("dir_all", ...) is the native async API for a recursive
+	-- delete -- no subshell, no quoting to get right.
+	fs.remove("dir_all", Url(xdg_trash))
 
-	-- rm -rf every .Trash-* dir found on all mount points
+	-- Remove every .Trash-* dir found on all mount points.
 	for _, dir in ipairs(raw_dirs) do
-		Command("sh")
-			:arg({ "-c", string.format("rm -rf %s", ya.quote(dir)) })
-			:stdout(Command.PIPED)
-			:stderr(Command.PIPED)
-			:spawn()
-			:wait()
+		fs.remove("dir_all", Url(dir))
 	end
 
 	local size_after = get_total_trash_size(xdg_trash, raw_dirs)
