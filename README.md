@@ -1,6 +1,6 @@
 # yazi-plugins
 
-A small collection of [Yazi](https://github.com/sxyazi/yazi) plugins — a couple of my own, plus a few forks fixed up to run on my setup (Arch, niri, Wayland).
+A small collection of [Yazi](https://github.com/sxyazi/yazi) plugins — a couple of my own, plus a few forks fixed up to run on my setup (Arch Linux, Niri WM).
 
 Install any of them individually with `ya pkg`:
 
