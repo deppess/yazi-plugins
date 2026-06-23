@@ -1,11 +1,11 @@
 # yazi-plugins
 
-A small collection of [Yazi](https://github.com/sxyazi/yazi) plugins — a couple of my own, plus a few forks fixed up to run on my setup (Arch Linux, Niri WM).
+A small collection of [Yazi](https://github.com/sxyazi/yazi) plugins and flavors — a couple of my own, plus a few forks fixed up to run on my setup (Arch Linux, Niri WM).
 
 Install any of them individually with `ya pkg`:
 
 ```sh
-ya pkg add deppes/yazi-plugins:<plugin-name>
+ya pkg add deppess/yazi-plugins:<name>
 ```
 
 Check each plugin's own README for setup, keymaps, and requirements.
@@ -21,6 +21,12 @@ Check each plugin's own README for setup, keymaps, and requirements.
 | [restore.yazi](restore.yazi) | Restore the most recently deleted files/folders. Fork of [boydaihungst/restore.yazi](https://github.com/boydaihungst/restore.yazi). |
 | [wl-clipboard.yazi](wl-clipboard.yazi) | Wayland system clipboard support. Fork of [grappas/wl-clipboard.yazi](https://github.com/grappas/wl-clipboard.yazi). |
 
+## Flavors
+
+| Flavor | Description |
+|---|---|
+| [tokyo-night.yazi](tokyo-night.yazi) | Tokyo Night colorscheme. Fork of [BennyOe/tokyo-night](https://github.com/BennyOe/tokyo-night), with tweaked indicator and status bar colors. |
+
 ## License
 
-Each plugin is MIT-licensed individually — see the `LICENSE` file inside its folder.
+Each plugin and flavor is MIT-licensed individually — see the `LICENSE` file inside its folder.
