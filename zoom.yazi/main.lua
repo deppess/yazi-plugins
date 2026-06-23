@@ -30,6 +30,11 @@ local move = ya.sync(function(st)
 	return { url = h.url, level = st.level }
 end)
 
+-- Track the most recently shown scratch file (sync state, since peek() runs
+-- in an async context but file lifetime needs to span calls).
+local get_prev_tmp = ya.sync(function(st) return st.prev_tmp end)
+local set_prev_tmp = ya.sync(function(st, path) st.prev_tmp = path end)
+
 local function end_(job, err)
 	if not job.old_level then
 		ya.preview_widget(job, err and ui.Text(err):area(job.area):wrap(ui.Wrap.YES))
@@ -102,10 +107,19 @@ local function peek(_, job)
 		return end_(job, Err("`magick` exited with error code %s: %s", output.status.code, output.stderr))
 	elseif sync() then
 		ya.image_show(Url(tmp), job.area)
-		-- The scratch file is no longer needed once the image has been
-		-- handed off to the renderer; clean it up so /tmp doesn't slowly
-		-- fill with one stray JPEG per zoom action.
-		os.remove(tmp)
+
+		-- Don't delete `tmp` here -- some terminal image protocols read the
+		-- file asynchronously after image_show() returns, so removing it
+		-- immediately can race the renderer and show a blank/broken preview.
+		-- Instead, clean up the *previous* scratch file now that we know
+		-- it's no longer the one on screen, and remember this one for next
+		-- time. Worst case there is exactly one extra file left behind in
+		-- $XDG_RUNTIME_DIR, which is tmpfs and cleared on logout/reboot.
+		local prev = get_prev_tmp()
+		if prev and prev ~= tmp then
+			os.remove(prev)
+		end
+		set_prev_tmp(tmp)
 	else
 		os.remove(tmp)
 	end
