@@ -22,7 +22,14 @@ ya pkg add deppes/yazi-plugins:restore
 on   = ["d", "u"]
 run  = "plugin restore"
 desc = "Restore last deleted files/folders"
+
+[[mgr.prepend_keymap]]
+on   = ["d", "U"]
+run  = "plugin restore --interactive"
+desc = "Pick deleted files/folders to restore"
 ```
+
+`plugin restore` restores the latest deleted batch. `plugin restore --interactive` opens a native picker for the newest 100 trash entries on the current volume.
 
 Note that, the keybinding above is just an example, please tune it up as needed to ensure it doesn't conflict with your other actions/plugins.
 

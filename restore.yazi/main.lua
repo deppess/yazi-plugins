@@ -4,6 +4,17 @@ local M = {}
 local shell = os.getenv("SHELL") or ""
 local PackageName = "Restore"
 
+local PICKER_KEYS = {
+	{ on = "q", run = "quit", desc = "Quit" },
+	{ on = "<Esc>", run = "quit", desc = "Quit" },
+	{ on = "<Enter>", run = "restore", desc = "Restore" },
+	{ on = { "<Space>", " " }, run = "toggle", desc = "Select" },
+	{ on = "j", run = "down", desc = "Down" },
+	{ on = "k", run = "up", desc = "Up" },
+	{ on = "<Down>", run = "down", desc = "Down" },
+	{ on = "<Up>", run = "up", desc = "Up" },
+}
+
 ---@class TrashItem
 ---@field trash_index number
 ---@field trashed_date_time string
@@ -164,6 +175,46 @@ local function get_latest_trashed_items(curr_working_volume)
 	return reversed_restorable_items, reversed_existed_items
 end
 
+---@param curr_working_volume string current working volume
+---@param limit integer max items to collect
+local function get_recent_trashed_items(curr_working_volume, limit)
+	local items = {}
+	local stream, err_cmd = Command(shell)
+		:arg({ "-c", "printf '\n' | trash-restore " .. path_quote(curr_working_volume) .. " | tac" })
+		:stdout(Command.PIPED)
+		:stderr(Command.PIPED)
+		:spawn()
+
+	if not stream then
+		error("Failed to start `trash-restore` with error: `%s`. Do you have `trash-cli` installed?", err_cmd)
+		return
+	end
+
+	while #items < limit do
+		local line, event = stream:read_line()
+		if event ~= 0 then
+			break
+		end
+
+		local trash_index, item_date, item_path = line:match("^%s*(%d+) (%S+ %S+) ([^\n]+)")
+		if item_date and item_path and trash_index ~= nil then
+			items[#items + 1] = {
+				trash_index = tonumber(trash_index),
+				trashed_date_time = item_date,
+				trashed_path = item_path,
+				type = get_file_type(item_path),
+			}
+		end
+	end
+	stream:start_kill()
+
+	if #items == 0 then
+		success("Nothing left to restore")
+		return
+	end
+	return items
+end
+
 --- Restore files/folders from trash list based on trash item start and end index
 ---@param curr_working_volume string current working volume
 ---@param start_index integer trash item start index
@@ -202,6 +253,46 @@ local function restore_files(curr_working_volume, start_index, end_index)
 	end
 end
 
+---@param curr_working_volume string current working volume
+---@param items TrashItem[] selected trash items
+local function restore_selected_files(curr_working_volume, items)
+	if not items or #items == 0 then
+		return
+	end
+
+	table.sort(items, function(a, b)
+		return a.trash_index > b.trash_index
+	end)
+
+	local failed = {}
+	for _, item in ipairs(items) do
+		local restored_status, err = Command(shell)
+			:arg({
+				"-c",
+				"echo "
+					.. ya.quote(tostring(item.trash_index))
+					.. " | trash-restore --overwrite "
+					.. path_quote(curr_working_volume),
+			})
+			:stdout(Command.PIPED)
+			:stderr(Command.PIPED)
+			:output()
+
+		if not (restored_status and restored_status.status.success) then
+			failed[#failed + 1] = restored_status and restored_status.stderr or tostring(err)
+		end
+	end
+
+	if #failed == 0 then
+		if not get_state(STATE.SUPPRESS_SUCCESS_NOTIFICATION) then
+			success("Restored " .. tostring(#items) .. " file" .. (#items > 1 and "s" or ""))
+		end
+		return
+	end
+
+	error("Failed to restore %d of %d file(s): %s", #failed, #items, failed[1])
+end
+
 --- Convert trash list to UI component list
 ---@param reversed_trash_list TrashItem[]
 ---@return ui.List[]
@@ -229,6 +320,216 @@ local function get_components(reversed_trash_list)
 	end
 	return trashed_items_components
 end
+
+local picker_open = ya.sync(function(state, items)
+	state.picker_items = items
+	state.picker_cursor = 1
+	state.picker_offset = 0
+	state.picker_selected = {}
+	if not state.picker_children then
+		state.picker_children = Modal:children_add(state, 10)
+	end
+	ui.render()
+end)
+
+local picker_close = ya.sync(function(state)
+	if state.picker_children then
+		Modal:children_remove(state.picker_children)
+		state.picker_children = nil
+	end
+	state.picker_items = nil
+	state.picker_cursor = nil
+	state.picker_offset = nil
+	state.picker_selected = nil
+	state.picker_body_area = nil
+	ui.render()
+end)
+
+local picker_move = ya.sync(function(state, delta)
+	local items = state.picker_items or {}
+	if #items == 0 then
+		return
+	end
+
+	local cursor = math.max(1, math.min((state.picker_cursor or 1) + delta, #items))
+	local visible = state.picker_body_area and math.max(1, state.picker_body_area.h) or 1
+	local offset = state.picker_offset or 0
+
+	if cursor <= offset then
+		offset = cursor - 1
+	elseif cursor > offset + visible then
+		offset = cursor - visible
+	end
+
+	state.picker_cursor = cursor
+	state.picker_offset = math.max(0, offset)
+	ui.render()
+end)
+
+local picker_toggle = ya.sync(function(state)
+	local items = state.picker_items or {}
+	if #items == 0 then
+		return
+	end
+
+	local item_idx = state.picker_cursor or 1
+	state.picker_selected[item_idx] = not state.picker_selected[item_idx]
+	ui.render()
+end)
+
+local picker_result = ya.sync(function(state)
+	local items = state.picker_items or {}
+	local selected = state.picker_selected or {}
+	local result = {}
+
+	for i = 1, #items do
+		if selected[i] then
+			result[#result + 1] = items[i]
+		end
+	end
+
+	if #result == 0 and #items > 0 then
+		result[1] = items[state.picker_cursor or 1]
+	end
+
+	return result
+end)
+
+local function pick_recent_items(items)
+	picker_open(items)
+	while true do
+		local idx = ya.which({ cands = PICKER_KEYS, silent = true })
+		local run = idx and PICKER_KEYS[idx] and PICKER_KEYS[idx].run
+		if run == "down" then
+			picker_move(1)
+		elseif run == "up" then
+			picker_move(-1)
+		elseif run == "toggle" then
+			picker_toggle()
+		elseif run == "restore" then
+			local result = picker_result()
+			picker_close()
+			return result
+		else
+			picker_close()
+			return nil
+		end
+	end
+end
+
+local function collided_items(items)
+	local collided = {}
+	for _, item in ipairs(items or {}) do
+		if item.type ~= File_Type.None_Exist then
+			collided[#collided + 1] = item
+		end
+	end
+	return collided
+end
+
+function M:new(area)
+	self:layout(area)
+	return self
+end
+
+function M:layout(area)
+	local rows = ui.Layout()
+		:direction(ui.Layout.VERTICAL)
+		:constraints({
+			ui.Constraint.Percentage(8),
+			ui.Constraint.Percentage(84),
+			ui.Constraint.Percentage(8),
+		})
+		:split(area)
+
+	local cols = ui.Layout()
+		:direction(ui.Layout.HORIZONTAL)
+		:constraints({
+			ui.Constraint.Percentage(5),
+			ui.Constraint.Percentage(90),
+			ui.Constraint.Percentage(5),
+		})
+		:split(rows[2])
+
+	self.picker_area = cols[2]
+end
+
+function M:reflow()
+	return { self }
+end
+
+function M:redraw()
+	local area = self.picker_area
+	local inner = area:pad(ui.Pad(1, 2, 1, 2))
+	local chunks = ui.Layout()
+		:direction(ui.Layout.VERTICAL)
+		:constraints({ ui.Constraint.Length(2), ui.Constraint.Fill(1), ui.Constraint.Length(1) })
+		:split(inner)
+
+	self.picker_body_area = chunks[2]
+
+	local items = self.picker_items or {}
+	local selected = self.picker_selected or {}
+	local cursor = self.picker_cursor or 1
+	local offset = self.picker_offset or 0
+	local selected_count = 0
+	for _, picked in pairs(selected) do
+		if picked then
+			selected_count = selected_count + 1
+		end
+	end
+
+	local body = {}
+	local visible = math.max(1, chunks[2].h)
+	local last = math.min(#items, offset + visible)
+	for row = offset + 1, last do
+		local item_idx = row
+		local item = items[item_idx]
+		local mark = selected[item_idx] and "[x]" or "[ ]"
+		local cursor_mark = row == cursor and ">" or " "
+		local collision = item.type ~= File_Type.None_Exist and "!" or " "
+		local line = string.format(
+			"%s %s %s %4d  %s  %s",
+			cursor_mark,
+			mark,
+			collision,
+			item.trash_index,
+			item.trashed_date_time,
+			item.trashed_path
+		)
+		local rendered = ui.Line(ui.truncate(line, { max = chunks[2].w }))
+		if row == cursor then
+			rendered:fg("blue"):underline()
+		end
+		body[#body + 1] = rendered
+	end
+	if #body == 0 then
+		body[1] = ui.Line("No items")
+	end
+
+	local header = ui.Text({
+		ui.Line("Newest 100 deleted items"),
+		ui.Line("Space select  Enter restore  q/Esc quit  ! path exists"),
+	}):area(chunks[1])
+	local footer = string.format("%d selected, %d total", selected_count, #items)
+	return {
+		ui.Clear(area),
+		ui.Border(ui.Edge.ALL)
+			:area(area)
+			:type(ui.Border.ROUNDED)
+			:style(ui.Style():fg("blue"))
+			:title(ui.Line("Restore"):align(ui.Align.CENTER)),
+		header,
+		ui.Text(body):area(chunks[2]):wrap(ui.Wrap.NO),
+		ui.Line(ui.truncate(footer, { max = chunks[3].w })):area(chunks[3]):dim(),
+	}
+end
+
+function M:click() end
+
+function M:scroll() end
+
+function M:touch() end
 
 --- Setup plugin, add it to yazi/init.lua file
 ---@param opts? SetupOptions
@@ -258,23 +559,42 @@ function M:entry(job)
 	local interactive_overwrite = job.args.interactive_overwrite
 
 	if interactive_mode == true then
-		-- Yazi holds the terminal in raw mode for its own input handling.
-		-- ui.hide() switches to the alternate screen but does not restore cooked
-		-- mode, so trash-restore can display its prompt but cannot read input.
-		-- stty sane resets the terminal to normal cooked mode first, then we
-		-- redirect all three streams explicitly to /dev/tty (the controlling
-		-- terminal of this process, i.e. your terminal emulator) so they bypass
-		-- whatever Yazi has done to the process file descriptors internally.
-		-- Yazi restores raw mode itself when permit:drop() is called.
-		local permit = ui.hide()
-		local overwrite_flag = interactive_overwrite and "--overwrite " or ""
-		os.execute(
-			"stty sane </dev/tty"
-			.. "; clear"
-			.. "; trash-restore " .. overwrite_flag .. path_quote(curr_working_volume)
-			.. " </dev/tty >/dev/tty 2>/dev/tty"
-		)
-		permit:drop()
+		local recent_trashed_items = get_recent_trashed_items(curr_working_volume, 100)
+		if recent_trashed_items == nil then
+			return
+		end
+
+		local selected_items = pick_recent_items(recent_trashed_items)
+		if not selected_items or #selected_items == 0 then
+			return
+		end
+
+		local selected_collisions = collided_items(selected_items)
+		if not interactive_overwrite and #selected_collisions > 0 then
+			local theme = get_state(STATE.THEME)
+			theme.title = theme.title and ui.Style():fg(theme.title):bold() or th.confirm.title
+			theme.header_warning = ui.Style():fg(theme.header_warning or "yellow")
+			local confirm_body = ui.Text({
+				ui.Line(""),
+				ui.Line("Selected path" .. (#selected_collisions > 1 and "s already exist, overwrite?" or " already exists, overwrite?"))
+					:style(theme.header_warning),
+				ui.Line(""),
+				table.unpack(get_components(selected_collisions)),
+			})
+				:align(ui.Align.LEFT)
+				:wrap(ui.Wrap.YES)
+			local overwrite_confirmed = ya.confirm({
+				title = ui.Line("Restore files/folders"):style(theme.title),
+				body = confirm_body,
+				content = confirm_body,
+				pos = get_state(STATE.POSITION),
+			})
+			if not overwrite_confirmed then
+				return
+			end
+		end
+
+		restore_selected_files(curr_working_volume, selected_items)
 		return
 	end
 
@@ -283,6 +603,7 @@ function M:entry(job)
 	if reversed_trashed_items == nil then
 		return
 	end
+
 	local overwrite_confirmed = true
 	local show_confirm = get_state(STATE.SHOW_CONFIRM)
 	local pos = get_state(STATE.POSITION)
