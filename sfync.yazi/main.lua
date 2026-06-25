@@ -9,6 +9,15 @@ local M = {}
 local K_PROFILE = "p"
 local K_CONTEXT = "c"
 
+local MODAL_KEYS = {
+	{ on = "q", run = "quit", desc = "Close" },
+	{ on = "<Esc>", run = "quit", desc = "Close" },
+	{ on = "j", run = "down", desc = "Down" },
+	{ on = "k", run = "up", desc = "Up" },
+	{ on = "<Down>", run = "down", desc = "Down" },
+	{ on = "<Up>", run = "up", desc = "Up" },
+}
+
 local set_state = ya.sync(function(state, key, val)
 	state[key] = val
 end)
@@ -63,6 +72,64 @@ local function parse_err(raw)
 	return "Unknown error"
 end
 
+local function split_lines(raw)
+	local lines = {}
+	for line in tostring(raw or ""):gmatch("[^\r\n]+") do
+		lines[#lines + 1] = line
+	end
+	if #lines == 0 then
+		lines[1] = "(no output)"
+	end
+	return lines
+end
+
+local modal_open = ya.sync(function(state, title, lines)
+	state.modal_title = title
+	state.modal_lines = lines
+	state.modal_offset = 0
+	if not state.modal_children then
+		state.modal_children = Modal:children_add(state, 10)
+	end
+	ui.render()
+end)
+
+local modal_close = ya.sync(function(state)
+	if state.modal_children then
+		Modal:children_remove(state.modal_children)
+		state.modal_children = nil
+	end
+	state.modal_title = nil
+	state.modal_lines = nil
+	state.modal_offset = nil
+	state.modal_body_area = nil
+	ui.render()
+end)
+
+local modal_scroll = ya.sync(function(state, delta)
+	local lines = state.modal_lines or {}
+	local area = state.modal_body_area
+	local visible = area and math.max(1, area.h) or 1
+	local max = math.max(0, #lines - visible)
+	state.modal_offset = math.max(0, math.min((state.modal_offset or 0) + delta, max))
+	ui.render()
+end)
+
+local function show_modal(title, raw)
+	modal_open(title, split_lines(raw))
+	while true do
+		local idx = ya.which({ cands = MODAL_KEYS, silent = true })
+		local run = idx and MODAL_KEYS[idx] and MODAL_KEYS[idx].run
+		if run == "down" then
+			modal_scroll(1)
+		elseif run == "up" then
+			modal_scroll(-1)
+		else
+			break
+		end
+	end
+	modal_close()
+end
+
 -- ── Config ────────────────────────────────────────────────────────────────────
 
 local function load_config()
@@ -112,14 +179,38 @@ local function find_parent(profiles, path)
 	return nil, nil
 end
 
--- ── Blocking shell (sync + diff) ─────────────────────────────────────────────
+-- ── Native output modal (sync + diff) ────────────────────────────────────────
 
-local function run_blocking(cmd)
-	ya.emit("shell", {
-		cmd .. "; printf '\\n\\nPress Enter to return...'; stty sane; read _",
-		block   = true,
-		confirm = false,
-	})
+local function run_output(sfync_sub, profile_name)
+	local args = {}
+	for part in sfync_sub:gmatch("%S+") do
+		args[#args + 1] = part
+	end
+	args[#args + 1] = profile_name
+
+	local out, err = Command("sfync")
+		:arg(args)
+		:stdout(Command.PIPED)
+		:stderr(Command.PIPED)
+		:output()
+
+	local title = "sfync " .. sfync_sub .. " " .. profile_name
+	if not out then
+		show_modal(title, "Failed to run sfync: " .. tostring(err))
+		return
+	end
+
+	local chunks = {}
+	if out.stdout and out.stdout ~= "" then
+		chunks[#chunks + 1] = out.stdout:gsub("%s+$", "")
+	end
+	if out.stderr and out.stderr ~= "" then
+		chunks[#chunks + 1] = out.stderr:gsub("%s+$", "")
+	end
+	if not out.status.success then
+		chunks[#chunks + 1] = "Exit code: " .. tostring(out.status.code)
+	end
+	show_modal(title, table.concat(chunks, "\n"))
 end
 
 -- ── Dir actions: up / down / diff ────────────────────────────────────────────
@@ -134,8 +225,79 @@ local function dir_action(sfync_sub)
 	local name = find_exact(profiles, ctx.hovered)
 	if not name then return end  -- silently ignore non-profile dirs
 
-	run_blocking("sfync " .. sfync_sub .. " " .. ya.quote(name))
+	run_output(sfync_sub, name)
 end
+
+function M:new(area)
+	self:layout(area)
+	return self
+end
+
+function M:layout(area)
+	local rows = ui.Layout()
+		:direction(ui.Layout.VERTICAL)
+		:constraints({
+			ui.Constraint.Percentage(8),
+			ui.Constraint.Percentage(84),
+			ui.Constraint.Percentage(8),
+		})
+		:split(area)
+
+	local cols = ui.Layout()
+		:direction(ui.Layout.HORIZONTAL)
+		:constraints({
+			ui.Constraint.Percentage(8),
+			ui.Constraint.Percentage(84),
+			ui.Constraint.Percentage(8),
+		})
+		:split(rows[2])
+
+	self.modal_area = cols[2]
+end
+
+function M:reflow()
+	return { self }
+end
+
+function M:redraw()
+	local area = self.modal_area
+	local inner = area:pad(ui.Pad(1, 2, 1, 2))
+	local chunks = ui.Layout()
+		:direction(ui.Layout.VERTICAL)
+		:constraints({ ui.Constraint.Fill(1), ui.Constraint.Length(1) })
+		:split(inner)
+
+	self.modal_body_area = chunks[1]
+
+	local lines = self.modal_lines or { "(no output)" }
+	local offset = self.modal_offset or 0
+	local body = {}
+	local last = math.min(#lines, offset + math.max(1, chunks[1].h))
+	for i = offset + 1, last do
+		body[#body + 1] = ui.Line(ui.truncate(lines[i], { max = chunks[1].w }))
+	end
+	if #body == 0 then
+		body[1] = ui.Line("")
+	end
+
+	local footer = string.format("q/Esc close  j/k scroll  %d/%d", math.min(#lines, offset + 1), #lines)
+	return {
+		ui.Clear(area),
+		ui.Border(ui.Edge.ALL)
+			:area(area)
+			:type(ui.Border.ROUNDED)
+			:style(ui.Style():fg("blue"))
+			:title(ui.Line(self.modal_title or "sfync"):align(ui.Align.CENTER)),
+		ui.Text(body):area(chunks[1]):wrap(ui.Wrap.NO),
+		ui.Line(ui.truncate(footer, { max = chunks[2].w })):area(chunks[2]):dim(),
+	}
+end
+
+function M:click() end
+
+function M:scroll() end
+
+function M:touch() end
 
 -- ── File actions: push / pull ─────────────────────────────────────────────────
 

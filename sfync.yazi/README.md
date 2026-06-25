@@ -73,7 +73,7 @@ Adjust keys to avoid conflicts with your other plugins.
 | `vm` | Mount remote via FUSE, navigate there | Hovered on a profile's context directory |
 | `vM` | Unmount | Anywhere |
 
-Sync and diff open an interactive terminal and wait for Enter before returning to Yazi. Push, pull, and mount run in the background; desktop notifications report success or failure (including per-file errors).
+Sync and diff show output in a native Yazi modal. Push, pull, and mount run in the background; desktop notifications report success or failure (including per-file errors).
 
 `vp` and `vl` operate on the hovered item when nothing is selected, or on all selected items. Selections spanning multiple profile context directories are grouped per profile and transferred concurrently.
 
