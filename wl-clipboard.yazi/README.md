@@ -9,7 +9,7 @@ Forked from [grappas/wl-clipboard.yazi](https://github.com/grappas/wl-clipboard.
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:wl-clipboard
+ya pkg add deppess/yazi-plugins:wl-clipboard
 ```
 
 ## License

@@ -9,7 +9,7 @@ Requires `sudo` and standard GNU/coreutils commands. The Helix action requires `
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:sudo
+ya pkg add deppess/yazi-plugins:sudo
 ```
 
 ## Usage

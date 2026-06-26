@@ -7,7 +7,7 @@ Requires [`gocryptfs`](https://github.com/rfjakob/gocryptfs) and `fusermount`.
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:crypter
+ya pkg add deppess/yazi-plugins:crypter
 ```
 
 ## Usage

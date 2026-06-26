@@ -7,7 +7,7 @@ Requires [`trash-cli`](https://github.com/andreafrancia/trash-cli).
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:trash-empty
+ya pkg add deppess/yazi-plugins:trash-empty
 ```
 
 ## Usage

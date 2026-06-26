@@ -7,7 +7,7 @@ Requires [`awww`](https://github.com/Decodetalkers/awww).
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:wallpaper
+ya pkg add deppess/yazi-plugins:wallpaper
 ```
 
 ## Usage

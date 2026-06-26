@@ -16,7 +16,7 @@ Forked from [yazi-rs/plugins/zoom.yazi](https://github.com/yazi-rs/plugins/tree/
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:zoom
+ya pkg add deppess/yazi-plugins:zoom
 ```
 
 ## Usage

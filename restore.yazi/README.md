@@ -11,7 +11,7 @@ Forked from [boydaihungst/restore.yazi](https://github.com/boydaihungst/restore.
 ## Installation
 
 ```sh
-ya pkg add deppes/yazi-plugins:restore
+ya pkg add deppess/yazi-plugins:restore
 ```
 
 ## Usage
