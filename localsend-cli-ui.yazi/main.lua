@@ -53,7 +53,11 @@ local function action_receive()
 	-- Runs as a background shell task (visible in task panel).
 	-- Exits automatically after one complete transfer session.
 	-- Sends a system notification on completion.
-	local cmd = [[
+	local notify_shim = ya.target_os() == "macos"
+		and [[notify-send() { osascript -e "display notification \"$2\" with title \"$1\""; }
+]]
+		or ""
+	local cmd = notify_shim .. [[
 localsend-cli receive --headless | {
     IFS= read -r _tline
     _total="${_tline#TOTAL:}"
@@ -151,8 +155,12 @@ local function action_send()
 		ok_msg = "Sent " .. n .. " files"
 	end
 
+	local notify_shim = ya.target_os() == "macos"
+		and [[notify-send() { osascript -e "display notification \"$2\" with title \"$1\""; }; ]]
+		or ""
+
 	ya.emit("shell", {
-		"localsend-cli send --to " .. ya.quote(ip) .. " " .. table.concat(quoted, " ")
+		notify_shim .. "localsend-cli send --to " .. ya.quote(ip) .. " " .. table.concat(quoted, " ")
 			.. " && notify-send 'LocalSend' " .. ya.quote(ok_msg)
 			.. " || notify-send 'LocalSend' 'Send failed'",
 		block   = false,

@@ -53,6 +53,20 @@ local function path_is_dir(path)
 end
 
 local function is_mounted(path)
+	if ya.target_os() == "macos" then
+		-- No `mountpoint(1)` on macOS; match against `mount`'s own listing
+		-- the same way the `mount`/`df` family of tools does internally.
+		local res = Command("mount")
+			:arg({ "-q" })
+			:stdout(Command.PIPED)
+			:stderr(Command.PIPED)
+			:output()
+		if not res then
+			return false
+		end
+		return res.stdout:find(" on " .. path .. " (", 1, true) ~= nil
+	end
+
 	local res = Command("mountpoint")
 		:arg({ "-q", path })
 		:stdout(Command.PIPED)
@@ -304,6 +318,16 @@ function M:touch() end
 -- Builds and fires one background fish script for a single profile group.
 local function run_transfer(op, profile_name, host, context, items)
 	local lines = { "set -l _errs" }
+
+	if ya.target_os() == "macos" then
+		-- No `notify-send` on macOS; shim it via osascript so the rest of
+		-- the script (and Linux installs of this same plugin) stay untouched.
+		lines[#lines + 1] = "function notify-send"
+		lines[#lines + 1] = "    set -l title $argv[1]"
+		lines[#lines + 1] = "    set -l body $argv[2]"
+		lines[#lines + 1] = "    osascript -e \"display notification \\\"$body\\\" with title \\\"$title\\\"\""
+		lines[#lines + 1] = "end"
+	end
 
 	for _, item in ipairs(items) do
 		if path_is_dir(item) then
