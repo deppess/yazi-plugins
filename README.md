@@ -14,6 +14,7 @@ Check each plugin's own README for setup, keymaps, and requirements.
 
 | Plugin | Description |
 |---|---|
+| [fs-usage-macos.yazi](fs-usage-macos.yazi) | Shows the current partition's used space in the header. Fork of [walldmtd/fs-usage](https://github.com/walldmtd/fs-usage), ported off GNU-only `df`/`readlink` flags to work on macOS. |
 | [wallpaper.yazi](wallpaper.yazi) | Sets the hovered file as your wallpaper via `awww`. |
 | [trash-empty.yazi](trash-empty.yazi) | Instantly clears XDG trash and `.Trash-*` folders across mounted drives. |
 | [localsend-cli-ui.yazi](localsend-cli-ui.yazi) | Send and receive files over the local network via [localsend-cli](https://github.com/deppess/localsend-cli). |
