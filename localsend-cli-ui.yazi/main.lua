@@ -47,9 +47,37 @@ local function load_favorites()
 	return favs
 end
 
+-- Read [whitelist] enabled directly from config, same technique as
+-- load_favorites(). Fails safe: if the file can't be read/parsed, treat
+-- whitelist as disabled so the exposure warning still fires.
+local function whitelist_enabled()
+	local path = os.getenv("HOME") .. "/.config/localsend-cli/config.toml"
+	local f = io.open(path, "r")
+	if not f then return false end
+	local content = f:read("*a")
+	f:close()
+
+	local in_wl = false
+	for line in content:gmatch("[^\n]+") do
+		if line:match("^%[whitelist%]") then
+			in_wl = true
+		elseif line:match("^%[") then
+			in_wl = false
+		elseif in_wl then
+			local val = line:match('^%s*enabled%s*=%s*(%a+)')
+			if val then return val == "true" end
+		end
+	end
+	return false
+end
+
 -- ── Receive ───────────────────────────────────────────────────────────────────
 
 local function action_receive()
+	if not whitelist_enabled() then
+		notify("LocalSend", "Whitelist is disabled — this will accept files from any device on the LAN. Enable [whitelist] in config.toml to restrict this.", "warn")
+	end
+
 	-- Runs as a background shell task (visible in task panel).
 	-- Exits automatically after one complete transfer session.
 	-- Sends a system notification on completion.
