@@ -18,6 +18,7 @@ Check each plugin's own README for setup, keymaps, and requirements.
 | [wallpaper.yazi](wallpaper.yazi) | Sets the hovered file as your wallpaper via `awww`. |
 | [trash-empty.yazi](trash-empty.yazi) | Instantly clears XDG trash and `.Trash-*` folders across mounted drives. |
 | [localsend-cli-ui.yazi](localsend-cli-ui.yazi) | Send and receive files over the local network via [localsend-cli](https://github.com/deppess/localsend-cli). |
+| [system-clipboard.yazi](system-clipboard.yazi) | Copies file(s) onto the macOS system clipboard as real file references, so pasting works in Finder/other apps. macOS counterpart to [wl-clipboard.yazi](wl-clipboard.yazi). |
 | [sfync.yazi](sfync.yazi) | Sync, diff, push/pull, and live-mount SFTP/FTP remotes from Yazi via [sfync](https://github.com/deppess/sfync). |
 | [crypter.yazi](crypter.yazi) | Mount/unmount an encrypted gocryptfs volume from Yazi. |
 | [sudo.yazi](sudo.yazi) | Run sudo file operations and open hovered/selected files in Helix with sudo. All-Lua fork of sudo.yazi. |
