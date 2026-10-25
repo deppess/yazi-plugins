@@ -4,7 +4,7 @@ Sync directories, push/pull individual files, diff remote state, and live-mount 
 
 The plugin reads sfync profiles from `~/.config/sfync/config.json` automatically.
 
-Requires [sfync](https://github.com/deppess/sfync) and at least one profile with a `context` field. Push and pull use [fish](https://fishshell.com) shell syntax, so fish must be configured as Yazi's shell for those actions.
+Requires Yazi 26.8.15 or newer, [sfync](https://github.com/deppess/sfync), and at least one profile with a `context` field. Push and pull use [fish](https://fishshell.com) shell syntax, so fish must be configured as Yazi's shell for those actions.
 
 ## Installation
 

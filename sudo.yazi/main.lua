@@ -1,3 +1,4 @@
+--- @since 26.8.15
 --- sudo.yazi/main.lua
 --- All-Lua sudo helper for Yazi 26.5.6+
 ---
@@ -192,8 +193,8 @@ local function selected_or_hovered()
 	local targets = {}
 
 	if #cx.active.selected ~= 0 then
-		for _, url in pairs(cx.active.selected) do
-			table.insert(targets, tostring(url))
+		for _, file in pairs(cx.active.selected) do
+			table.insert(targets, tostring(file.url))
 		end
 	else
 		local hovered = cx.active.current.hovered
@@ -208,8 +209,8 @@ end
 local function yanked_files()
 	local yanked = {}
 
-	for _, url in pairs(cx.yanked) do
-		table.insert(yanked, tostring(url))
+	for _, file in pairs(cx.yanked) do
+		table.insert(yanked, tostring(file.url))
 	end
 
 	return yanked

@@ -1,9 +1,11 @@
+--- @since 26.8.15
+
 -- Meant to run at async context. (yazi system-clipboard)
 
 local selected_or_hovered = ya.sync(function()
 	local tab, paths = cx.active, {}
-	for _, u in pairs(tab.selected) do
-		paths[#paths + 1] = tostring(u)
+	for _, file in pairs(tab.selected) do
+		paths[#paths + 1] = tostring(file.url)
 	end
 	if #paths == 0 and tab.current.hovered then
 		paths[1] = tostring(tab.current.hovered.url)
@@ -13,6 +15,15 @@ end)
 
 return {
 	entry = function()
+		if ya.target_os() ~= "linux" or not os.getenv("WAYLAND_DISPLAY") then
+			return ya.notify({
+				title = "System Clipboard",
+				content = "This plugin requires a Linux Wayland session",
+				level = "error",
+				timeout = 5,
+			})
+		end
+
 		ya.emit("escape", { visual = true })
 
 		local urls = selected_or_hovered()
@@ -34,8 +45,24 @@ return {
 			file_list_formatted = file_list_formatted .. "file://" .. encode_uri(path) .. "\r\n"
 		end
 
-		local status, err =
-			Command("wl-copy"):arg("--type"):arg("text/uri-list"):arg(file_list_formatted):spawn():wait()
+		local child, spawn_err = Command("wl-copy")
+			:arg({ "--type", "text/uri-list" })
+			:stdin(Command.PIPED)
+			:spawn()
+		if not child then
+			return ya.notify({
+				title = "System Clipboard",
+				content = "Could not start wl-copy: " .. tostring(spawn_err),
+				level = "error",
+				timeout = 5,
+			})
+		end
+
+		local wrote, write_err = child:write_all(file_list_formatted)
+		if wrote then
+			wrote, write_err = child:flush()
+		end
+		local status, wait_err = child:wait()
 
 		-- NOTE: status.success is the documented field. The previous version
 		-- of this check used "status.succes" (typo) combined with `status or`
@@ -52,7 +79,10 @@ return {
 		else
 			ya.notify({
 				title = "System Clipboard",
-				content = string.format("Could not copy selected file(s) %s", status and status.code or err),
+				content = string.format(
+					"Could not copy selected file(s): %s",
+					not wrote and tostring(write_err) or status and tostring(status.code) or tostring(wait_err)
+				),
 				level = "error",
 				timeout = 5,
 			})

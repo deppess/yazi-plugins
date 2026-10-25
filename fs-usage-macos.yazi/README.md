@@ -2,6 +2,8 @@
 
 A [Yazi](https://github.com/sxyazi/yazi) plugin to show the current partition's used space in the header or status.
 
+Requires Yazi 25.5.31 or newer. If `df` or symlink resolution is unavailable for the active directory, the component hides itself until the next successful refresh.
+
 macOS counterpart to [walldmtd/fs-usage](https://github.com/walldmtd/fs-usage), which only supports Linux — it shells out to GNU `df --output=source,pcent` and GNU `readlink --canonicalize`, neither of which exist on BSD/macOS `df`/`readlink`. This fork branches on `ya.target_os()` and uses `df -P` (fixed POSIX columns) and `readlink -f -n` on macOS, falling back to the original GNU behaviour everywhere else — so the same plugin works on both.
 
 ## Installation

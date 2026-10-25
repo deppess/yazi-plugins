@@ -83,21 +83,27 @@ local function process_df_output(stdout)
 	else
 		source, usage = stdout:match(".*%s(%S+)%s+(%S+)")
 	end
+	if not source or not usage then
+		return nil, nil
+	end
 
 	-- Follow symlinks in source
 	if string.sub(source, 1, 1) == "/" then
+		local resolved
 		if ya.target_os() == "macos" then
 			-- BSD readlink has no --canonicalize/--silent; -f resolves symlinks
 			-- (macOS 12.3+), -n suppresses the trailing newline
-			source = Command("readlink"):arg({ "-f", "-n", source }):output().stdout
+			resolved = Command("readlink"):arg({ "-f", "-n", source }):output()
 		else
-			source = Command("readlink"):arg({ "--silent", "--canonicalize", "--no-newline", source }):output().stdout
+			resolved = Command("readlink"):arg({ "--silent", "--canonicalize", "--no-newline", source }):output()
+		end
+		if resolved and resolved.status.success and resolved.stdout ~= "" then
+			source = resolved.stdout
 		end
 	end
 
-	-- Assume usage is a valid percentage
-	-- Remove the percent and parse
-	usage = tonumber(string.sub(usage, 1, #usage - 1))
+	usage = usage:match("^(%d+)%%$")
+	usage = usage and tonumber(usage) or nil
 
 	return source, usage
 end
@@ -125,8 +131,7 @@ local set_state = ya.sync(function(st, source, usage, text, bar_len)
 	st.text = text
 	st.bar_len = bar_len
 
-	local render = ui.render or ya.render
-	render()
+	ui.render()
 end)
 
 ---Get plugin state needed by entry
@@ -251,6 +256,7 @@ local function setup(st, opts)
 	ps.sub("cd", callback)
 	ps.sub("tab", callback)
 	ps.sub("delete", callback)
+	callback()
 	-- These are the only relevant events that actually work
 	-- Note: df might not immediately reflect usage changes
 	--  when deleting files
@@ -267,7 +273,7 @@ local function entry(_, job)
 	local output = Command("df"):arg(df_args):output()
 
 	-- If df fails, hide the module
-	if not output.status.success then
+	if not output or not output.status or not output.status.success then
 		set_state(nil, nil, nil, nil)
 		return
 	end

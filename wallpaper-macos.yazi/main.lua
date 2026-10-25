@@ -14,13 +14,15 @@ local function notify(content, level)
 end
 
 local function set_wallpaper(path)
-	for _, binary in ipairs({ "desktoppr", "/opt/homebrew/bin/desktoppr" }) do
-		local output = Command(binary):arg({ "all", path }):output()
+	local last_err
+	for _, binary in ipairs({ "desktoppr", "/opt/homebrew/bin/desktoppr", "/usr/local/bin/desktoppr" }) do
+		local output, err = Command(binary):arg({ "all", path }):output()
 		if output then
-			return output
+			return output, binary
 		end
+		last_err = err
 	end
-	return nil
+	return nil, nil, last_err
 end
 
 return {
@@ -40,12 +42,13 @@ return {
 			return
 		end
 
-		local output = set_wallpaper(path)
+		local output, binary, err = set_wallpaper(path)
 		if not output or not output.status.success then
-			notify("desktoppr could not set the wallpaper", "error")
+			local detail = output and output.stderr or err or "desktoppr was not found in PATH, /opt/homebrew/bin, or /usr/local/bin"
+			notify("desktoppr could not set the wallpaper: " .. tostring(detail), "error")
 			return
 		end
 
-		notify("Set " .. (path:match("([^/]+)$") or path), "info")
+		notify("Set " .. (path:match("([^/]+)$") or path) .. " via " .. binary, "info")
 	end,
 }

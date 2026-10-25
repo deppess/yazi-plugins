@@ -8,7 +8,7 @@ macOS's native trash keeps no scriptable record of a file's original path (no xa
 
 ## Restore
 
-`restore` opens an in-Yazi picker (ported from [restore.yazi](../restore.yazi)'s Modal) over the newest 100 manifest entries across every trash location — no need to `cd` into a trash dir first. `Space` multi-selects, `Enter` restores (falls back to the item under the cursor if nothing's selected), `j`/`k` or arrow keys move, `q`/`Esc` cancels. A `!` marker means something already exists at that item's original path — restoring it lands as `name (1)`, `name (2)`, etc. (capped at 100) instead of overwriting. Anything without a manifest record (trashed outside this plugin) never shows up, so nothing is guessed at.
+`restore` opens an in-Yazi picker (ported from [restore.yazi](../restore.yazi)'s Modal) over the newest 100 manifest entries across every native trash location: `~/.Trash`, APFS Data, and mounted external, encrypted, network, or FUSE volumes — no need to `cd` into a trash dir first. `Space` multi-selects, `Enter` restores (falls back to the item under the cursor if nothing's selected), `j`/`k` or arrow keys move, `q`/`Esc` cancels. A `!` marker means something already exists at that item's original path — restoring it lands as `name (1)`, `name (2)`, etc. (capped at 100) instead of overwriting. Anything without a manifest record (trashed outside this plugin) never shows up, so nothing is guessed at.
 
 ## Installation
 

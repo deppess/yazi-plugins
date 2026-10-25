@@ -4,6 +4,8 @@ Copies the selected/hovered file(s) onto the macOS system clipboard as real file
 
 macOS counterpart to [wl-clipboard.yazi](../wl-clipboard.yazi), which targets the Wayland clipboard via `wl-copy` on Linux. It preserves the selection behavior of [orhnk/system-clipboard.yazi](https://github.com/orhnk/system-clipboard.yazi) while using macOS's built-in `osascript` backend.
 
+Requires Yazi 26.8.15 or newer.
+
 ## Installation
 
 ```sh

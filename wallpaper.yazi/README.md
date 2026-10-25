@@ -2,7 +2,7 @@
 
 Set the currently hovered file as your wallpaper, applying it to both the `wallpaper` and `backdrop` namespaces. The last-used path is saved so it persists across restarts.
 
-Requires [`awww`](https://github.com/Decodetalkers/awww).
+Requires Yazi 26.5.6 or newer, Linux/Wayland, and [`awww`](https://github.com/Decodetalkers/awww). The last path is saved below `$XDG_STATE_HOME/awww` (or `~/.local/state/awww`).
 
 ## Installation
 

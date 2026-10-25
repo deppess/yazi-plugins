@@ -2,7 +2,7 @@
 
 Send and receive files over the local network directly from Yazi — backed by [localsend-cli](https://github.com/deppess/localsend-cli), a headless [LocalSend](https://localsend.org) v2.1 client.
 
-Requires [localsend-cli](https://github.com/deppess/localsend-cli) installed and configured at `~/.config/localsend-cli/config.toml`. The plugin reads favorites from that configuration automatically. Notifications use `notify-send` on Linux and macOS notifications through `osascript`.
+Requires Yazi 26.8.15 or newer and [localsend-cli](https://github.com/deppess/localsend-cli) installed and configured at `~/.config/localsend-cli/config.toml`. The plugin reads favorites from that configuration automatically. Notifications use `notify-send` on Linux and macOS notifications through `osascript`.
 
 ## Installation
 
@@ -35,9 +35,9 @@ desc = "LocalSend: send selected files"
 
 ## How it works
 
-**Receive (`md`)** spawns `localsend-cli receive --headless` as a background shell task. The task stays visible in Yazi's task panel while waiting. Once a sender connects and finishes transferring, the process exits and a desktop notification reports the result. On cancel or connection drop, partial `.tmp` files are cleaned up automatically and the process exits silently.
+**Receive (`md`)** runs `localsend-cli receive --headless` directly from the async plugin. Once a sender connects and finishes transferring, the process exits and a desktop notification reports the result. On cancel or connection drop, partial `.tmp` files are cleaned up automatically and the process exits silently.
 
-**Send (`mp`)** reads configured favorites from `~/.config/localsend-cli/config.toml` and presents a numbered picker without a network scan. Select a device, and `localsend-cli send` runs as a background task in the task panel. A desktop notification reports success or failure.
+**Send (`mp`)** reads configured favorites from `~/.config/localsend-cli/config.toml` and presents a numbered picker without a network scan. Select a device, and `localsend-cli send` receives every path as a direct command argument. A desktop notification reports success or failure.
 
 Receive dir is always the `dir` value from your localsend-cli config (defaults to `~/Downloads`).
 

@@ -1,4 +1,4 @@
---- @since 26.5.6
+--- @since 26.8.15
 
 local M = {}
 
@@ -31,8 +31,8 @@ end)
 local get_ctx = ya.sync(function()
 	local h   = cx.active.current.hovered
 	local sel = {}
-	for _, u in pairs(cx.active.selected) do
-		sel[#sel + 1] = tostring(u)
+	for _, file in pairs(cx.active.selected) do
+		sel[#sel + 1] = tostring(file.url)
 	end
 	return {
 		hovered        = h and tostring(h.url) or nil,

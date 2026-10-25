@@ -2,7 +2,7 @@
 
 Sets the hovered file as the wallpaper on every connected macOS display.
 
-Requires [desktoppr](https://github.com/scriptingosx/desktoppr).
+Requires Yazi 26.5.6 or newer and [desktoppr](https://github.com/scriptingosx/desktoppr). The plugin checks `PATH`, `/opt/homebrew/bin/desktoppr`, then `/usr/local/bin/desktoppr`.
 
 ## Installation
 

@@ -2,7 +2,7 @@
 
 Mount and unmount an encrypted [gocryptfs](https://github.com/rfjakob/gocryptfs) volume directly from Yazi. A single keybind toggles between locked and unlocked state, prompting for your password on unlock and retrying up to a configurable number of attempts.
 
-Requires [`gocryptfs`](https://github.com/rfjakob/gocryptfs) and `fusermount`.
+Requires Yazi 26.5.6 or newer, [`gocryptfs`](https://github.com/rfjakob/gocryptfs), and `fusermount`.
 
 ## Installation
 

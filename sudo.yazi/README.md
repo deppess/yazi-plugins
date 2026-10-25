@@ -118,7 +118,7 @@ For Helix, the plugin runs one `hx` process with all selected files passed as ar
 
 This plugin only supports permanent deletion. Trash support was intentionally removed.
 
-This plugin is designed for Linux systems with `sudo`, coreutils, and Yazi 26.5.6 or newer.
+This plugin is designed for Linux systems with `sudo`, coreutils, and Yazi 26.8.15 or newer.
 
 ## License
 

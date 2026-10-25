@@ -1,4 +1,4 @@
---- @since 25.5.31
+--- @since 26.5.6
 -- Encrypted volume manager using gocryptfs
 
 local M = {}
@@ -262,22 +262,27 @@ local function unlock(locked_path, open_path, max_retries)
 		end
 
 		-- Try to mount with password file
-		local result = Command("gocryptfs")
+		local child, spawn_err = Command("gocryptfs")
 			:arg({ "--passfile", temp_file, expanded_locked, expanded_open })
 			:stdout(Command.PIPED)
 			:stderr(Command.PIPED)
 			:spawn()
-			:wait()
+		if not child then
+			fs.remove("file", Url(temp_file))
+			notify("Failed to start gocryptfs: " .. tostring(spawn_err), "error")
+			return false
+		end
+		local result, wait_err = child:wait_with_output()
 
 		-- Always remove the temp file immediately
 		fs.remove("file", Url(temp_file))
 
-		if result and result.success then
+		if result and result.status.success then
 			notify("Unlocked successfully", "info")
 			return true
 		else
 			-- Parse and handle the error
-			local error_msg = parse_gocryptfs_error(result.stderr)
+			local error_msg = parse_gocryptfs_error(result and result.stderr or tostring(wait_err))
 
 			-- If it's not a password error, show the error and exit
 			if error_msg ~= "incorrect_password" then

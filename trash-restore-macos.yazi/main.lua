@@ -94,27 +94,41 @@ printf 'RESTORED=%s\nSKIPPED=%s\n' "$restored" "$skipped"
 
 -- Lists the newest 100 manifest entries across every trash location, as
 -- "<epoch>\t<trash_dir>\t<trashed_name>\t<original_path>", newest first.
--- Fully self-contained: uid, volume discovery, manifest reads, sort and cap
--- all happen in this one subprocess -- no separate calls needed to find the
--- uid or enumerate /Volumes first. IFS is swapped to newline-only (not
--- unset back to default whitespace) so volume names containing spaces
--- (e.g. "Time Machine Backups") don't get word-split by the `for` loop.
+-- Fully self-contained: uid, mount discovery, manifest reads, sort and cap
+-- all happen in this one subprocess. Mount output covers APFS Data plus
+-- non-/Volumes mounts such as network, encrypted, and FUSE filesystems.
 local LIST_SCRIPT = [[
 uid=$(id -u)
 home="$HOME"
+seen=
 emit() {
+	dir=$1
+	case "
+$seen
+" in
+	*"
+$dir
+") return ;;
+	esac
+	seen="${seen}
+$dir"
 	m="$1/.restore-manifest.tsv"
 	[ -f "$m" ] && awk -F'\t' -v d="$1" 'NF>=3{printf "%s\t%s\t%s\t%s\n", $3, d, $1, $2}' "$m"
 }
 {
 	emit "$home/.Trash"
-	old_ifs=$IFS
-	IFS='
-'
-	for v in $(find /Volumes -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
-		emit "$v/.Trashes/$uid"
-	done
-	IFS=$old_ifs
+	emit "/System/Volumes/Data/.Trashes/$uid"
+	while IFS= read -r line; do
+		case "$line" in
+		*" on "*" ("*)
+			mountpoint=${line#* on }
+			mountpoint=${mountpoint% (*}
+			emit "$mountpoint/.Trashes/$uid"
+			;;
+		esac
+	done <<__TRASH_RESTORE_MOUNT_OUTPUT__
+$(mount 2>/dev/null)
+__TRASH_RESTORE_MOUNT_OUTPUT__
 } | sort -k1,1nr | head -n 100
 ]]
 
@@ -443,8 +457,8 @@ local function restore_picker()
 	end
 
 	local output = run(RESTORE_SCRIPT, paths)
-	if not output then
-		notify("Failed to run restore", "error")
+	if not output or not output.status or not output.status.success then
+		notify("Failed to restore: " .. tostring(output and output.stderr or "could not start shell"), "error")
 		return
 	end
 
@@ -475,8 +489,8 @@ local function trash_selected()
 	end
 
 	local output = run(TRASH_SCRIPT, targets)
-	if not output then
-		notify("Failed to run trash", "error")
+	if not output or not output.status or not output.status.success then
+		notify("Failed to trash: " .. tostring(output and output.stderr or "could not start shell"), "error")
 		return
 	end
 

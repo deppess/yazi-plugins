@@ -10,9 +10,8 @@ local M = {}
 
 -- Check if command is available
 local function is_command_available(cmd)
-	local stat_cmd = string.format("command -v %s >/dev/null 2>&1", cmd)
-	local cmd_exists = os.execute(stat_cmd)
-	return cmd_exists == true or cmd_exists == 0
+	local status = Command("sh"):arg({ "-c", "command -v \"$1\" >/dev/null 2>&1", "sh", cmd }):status()
+	return status and status.success
 end
 
 -- Send a notification
@@ -124,12 +123,18 @@ end
 -- Returns: xdg_trash path (string), raw_dirs (list of .Trash-* paths to remove)
 local function collect_all_trash()
 	local home = os.getenv("HOME")
+	if not home or home == "" then
+		return nil, {}
+	end
 	local xdg_trash = home .. "/.local/share/Trash"
-	local raw_dirs = {}
+	local raw_dirs, seen = {}, {}
 
 	for _, mount in ipairs(get_all_mount_points()) do
 		for _, trash_dir in ipairs(find_trash_dirs(mount)) do
-			raw_dirs[#raw_dirs + 1] = trash_dir
+			if not seen[trash_dir] then
+				seen[trash_dir] = true
+				raw_dirs[#raw_dirs + 1] = trash_dir
+			end
 		end
 	end
 
@@ -145,24 +150,21 @@ local function get_total_trash_size(xdg_trash, raw_dirs)
 	return total
 end
 
--- Count items in the XDG trash via trash-list
-local function get_trash_count()
-	local child = Command("sh")
-		:arg({ "-c", "trash-list 2>/dev/null | wc -l" })
+local function get_item_count(path)
+	local output = Command("find")
+		:arg({ path, "-mindepth", "1", "-maxdepth", "1", "-print" })
 		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:spawn()
-
-	if not child then
+		:stderr(Command.NULL)
+		:output()
+	if not output or not output.status.success then
 		return 0
 	end
 
-	local output = child:wait_with_output()
-	if output and output.status and output.status.success then
-		return tonumber(output.stdout:match("^%s*(%d+)")) or 0
+	local count = 0
+	for _ in output.stdout:gmatch("[^\r\n]+") do
+		count = count + 1
 	end
-
-	return 0
+	return count
 end
 
 -- Clear all trash
@@ -178,8 +180,15 @@ local function clear_trash()
 	end
 
 	local xdg_trash, raw_dirs = collect_all_trash()
+	if not xdg_trash then
+		notify("✗ HOME is not set", "error")
+		return false
+	end
 
-	local trash_count = get_trash_count()
+	local trash_count = get_item_count(xdg_trash)
+	for _, dir in ipairs(raw_dirs) do
+		trash_count = trash_count + get_item_count(dir)
+	end
 	local size_before = get_total_trash_size(xdg_trash, raw_dirs)
 
 	-- Clear XDG user trash via trash-empty (handles .trashinfo files cleanly)
@@ -195,24 +204,37 @@ local function clear_trash()
 		return false
 	end
 
-	-- Remove the XDG trash dir itself so it's fully gone.
-	-- fs.remove("dir_all", ...) is the native async API for a recursive
-	-- delete -- no subshell, no quoting to get right.
-	fs.remove("dir_all", Url(xdg_trash))
+	local cleared, failed = 0, 0
+	local function remove_dir(dir)
+		local attributes = fs.cha(Url(dir), false)
+		if not attributes then
+			return
+		end
+		local ok = fs.remove("dir_all", Url(dir))
+		if ok then
+			cleared = cleared + 1
+		else
+			failed = failed + 1
+		end
+	end
+
+	-- Remove the XDG trash dir itself so it is recreated cleanly by trash-cli.
+	remove_dir(xdg_trash)
 
 	-- Remove every .Trash-* dir found on all mount points.
 	for _, dir in ipairs(raw_dirs) do
-		fs.remove("dir_all", Url(dir))
+		remove_dir(dir)
 	end
 
 	local size_after = get_total_trash_size(xdg_trash, raw_dirs)
-	local space_freed = size_before - size_after
+	local space_freed = math.max(0, size_before - size_after)
 
-	notify(
-		string.format("✓ Emptied %d items | %s freed | %d locations cleared", trash_count, format_size(space_freed), #raw_dirs),
-		"info"
-	)
-	return true
+	local message = string.format("✓ Emptied %d items | %s freed | %d locations cleared", trash_count, format_size(space_freed), cleared)
+	if failed > 0 then
+		message = message .. string.format(" | %d locations failed", failed)
+	end
+	notify(message, failed > 0 and "warn" or "info")
+	return failed == 0
 end
 
 -- Entry point

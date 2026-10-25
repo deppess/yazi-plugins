@@ -1,7 +1,9 @@
+--- @since 26.8.15
+
 local selected_or_hovered = ya.sync(function()
 	local tab, paths = cx.active, {}
-	for _, url in pairs(tab.selected) do
-		paths[#paths + 1] = tostring(url)
+	for _, file in pairs(tab.selected) do
+		paths[#paths + 1] = tostring(file.url)
 	end
 	if #paths == 0 and tab.current.hovered then
 		paths[1] = tostring(tab.current.hovered.url)
@@ -41,7 +43,12 @@ return {
 		if status and status.success then
 			ya.notify({ title = "System Clipboard", content = "Copied file(s) to the system clipboard", level = "info", timeout = 5 })
 		else
-			ya.notify({ title = "System Clipboard", content = "Could not copy selected file(s): " .. (status and tostring(status.code) or tostring(err)), level = "error", timeout = 5 })
+			ya.notify({
+				title = "System Clipboard",
+				content = "Could not copy selected file(s): " .. (status and tostring(status.code) or tostring(err)),
+				level = "error",
+				timeout = 5,
+			})
 		end
 	end,
 }

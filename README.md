@@ -6,7 +6,7 @@ A collection of Yazi plugins and flavors for Linux, macOS, and Wayland. Install 
 ya pkg add deppess/yazi-plugins:<name>
 ```
 
-Each plugin README documents its Yazi version, platform, dependencies, configuration, and suggested keybindings.
+Each plugin README and its top-level `@since` annotation document the authoritative minimum Yazi version, platform, dependencies, configuration, and suggested keybindings. This collection is validated against Yazi 26.9.1.
 
 ## Plugins
 
