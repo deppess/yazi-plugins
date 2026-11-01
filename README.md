@@ -26,6 +26,7 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 | [trash-empty.yazi](trash-empty.yazi) | Linux | Clears XDG trash and mounted-drive trash locations. |
 | [trash-empty-macos.yazi](trash-empty-macos.yazi) | macOS | Clears native macOS trash locations. |
 | [trash-restore-macos.yazi](trash-restore-macos.yazi) | macOS | Trashes files and restores manifest-backed native macOS trash entries. |
+| [ts-note.yazi](ts-note.yazi) | Linux, macOS | Timestamps new notes in a notes directory and appends `.md` to extensionless names. |
 | [wallpaper.yazi](wallpaper.yazi) | Linux/Wayland | Sets the hovered file through `awww`. |
 | [wallpaper-macos.yazi](wallpaper-macos.yazi) | macOS | Sets the hovered file through `desktoppr`. |
 | [wl-clipboard.yazi](wl-clipboard.yazi) | Linux/Wayland | Copies files to the Wayland clipboard as URI-list data. |
