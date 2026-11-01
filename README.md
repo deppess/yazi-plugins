@@ -33,4 +33,6 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 
 ## License
 
-Several directories are maintained forks or adaptations. Their individual READMEs and LICENSE files retain upstream attribution and identify modifications. Most plugins are MIT-licensed; [restore.yazi](restore.yazi) is licensed under AGPL-3.0-or-later.
+All rights reserved, view only, except for the directories below. See [LICENSE](LICENSE).
+
+Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, trash-empty-macos.yazi, wl-clipboard.yazi, zoom.yazi and tokyo-night.yazi.
