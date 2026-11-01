@@ -8,6 +8,8 @@ ya pkg add deppess/yazi-plugins:<name>
 
 Each plugin README and its top-level `@since` annotation document the authoritative minimum Yazi version, platform, dependencies, configuration, and suggested keybindings. This collection is validated against Yazi 26.9.1.
 
+Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHub](https://github.com/deppess/yazi-plugins) (mirror)
+
 ## Plugins
 
 | Plugin | Platform | Description |
@@ -29,6 +31,6 @@ Each plugin README and its top-level `@since` annotation document the authoritat
 | [wl-clipboard.yazi](wl-clipboard.yazi) | Linux/Wayland | Copies files to the Wayland clipboard as URI-list data. |
 | [zoom.yazi](zoom.yazi) | Linux, macOS | Enlarges or shrinks the hovered image preview. |
 
-## Origins And Licenses
+## License
 
 Several directories are maintained forks or adaptations. Their individual READMEs and LICENSE files retain upstream attribution and identify modifications. Most plugins are MIT-licensed; [restore.yazi](restore.yazi) is licensed under AGPL-3.0-or-later.
