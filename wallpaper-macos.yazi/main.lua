@@ -44,7 +44,9 @@ return {
 
 		local output, binary, err = set_wallpaper(path)
 		if not output or not output.status.success then
-			local detail = output and output.stderr or err or "desktoppr was not found in PATH, /opt/homebrew/bin, or /usr/local/bin"
+			local detail = output and output.stderr
+				or err
+				or "desktoppr was not found in PATH, /opt/homebrew/bin, or /usr/local/bin"
 			notify("desktoppr could not set the wallpaper: " .. tostring(detail), "error")
 			return
 		end

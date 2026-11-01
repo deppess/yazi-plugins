@@ -52,10 +52,7 @@ end
 -- Check if a path exists
 local function path_exists(path)
 	local expanded = expand_path(path)
-	local status = Command("test")
-		:arg({ "-e", expanded })
-		:spawn()
-		:wait()
+	local status = Command("test"):arg({ "-e", expanded }):spawn():wait()
 	return status and status.success
 end
 
@@ -66,20 +63,13 @@ local function is_mounted(path)
 	-- First check if mountpoint command exists
 	if not is_command_available("mountpoint") then
 		-- Fallback: check /proc/mounts
-		local result = Command("grep")
-			:arg({ "-q", expanded, "/proc/mounts" })
-			:spawn()
-			:wait()
+		local result = Command("grep"):arg({ "-q", expanded, "/proc/mounts" }):spawn():wait()
 		return result and result.success
 	end
 
 	-- Use mountpoint command
-	local result = Command("mountpoint")
-		:arg({ "-q", expanded })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:spawn()
-		:wait()
+	local result =
+		Command("mountpoint"):arg({ "-q", expanded }):stdout(Command.PIPED):stderr(Command.PIPED):spawn():wait()
 
 	return result and result.success
 end
@@ -137,12 +127,8 @@ local function lock(open_path)
 	end
 
 	-- Unmount with better error handling
-	local result = Command("fusermount")
-		:arg({ "-u", expanded_path })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:spawn()
-		:wait()
+	local result =
+		Command("fusermount"):arg({ "-u", expanded_path }):stdout(Command.PIPED):stderr(Command.PIPED):spawn():wait()
 
 	if result and result.success then
 		notify("Locked successfully", "info")
@@ -235,8 +221,7 @@ local function unlock(locked_path, open_path, max_retries)
 
 	while attempts < max_retries do
 		-- Show password input with cleaner UI
-		local title = attempts == 0
-			and "Unlock Encrypted Volume"
+		local title = attempts == 0 and "Unlock Encrypted Volume"
 			or string.format("Invalid Password (%d/%d)", attempts, max_retries)
 
 		local password, event = ya.input({

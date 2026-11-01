@@ -518,7 +518,9 @@ function M:entry(job)
 		else
 			trash_selected()
 		end
-	end, function() return "" end)
+	end, function()
+		return ""
+	end)
 	if not ok then
 		notify("Plugin failed", "error")
 	end

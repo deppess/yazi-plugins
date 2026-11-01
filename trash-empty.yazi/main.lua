@@ -10,7 +10,7 @@ local M = {}
 
 -- Check if command is available
 local function is_command_available(cmd)
-	local status = Command("sh"):arg({ "-c", "command -v \"$1\" >/dev/null 2>&1", "sh", cmd }):status()
+	local status = Command("sh"):arg({ "-c", 'command -v "$1" >/dev/null 2>&1', "sh", cmd }):status()
 	return status and status.success
 end
 
@@ -229,7 +229,12 @@ local function clear_trash()
 	local size_after = get_total_trash_size(xdg_trash, raw_dirs)
 	local space_freed = math.max(0, size_before - size_after)
 
-	local message = string.format("✓ Emptied %d items | %s freed | %d locations cleared", trash_count, format_size(space_freed), cleared)
+	local message = string.format(
+		"✓ Emptied %d items | %s freed | %d locations cleared",
+		trash_count,
+		format_size(space_freed),
+		cleared
+	)
 	if failed > 0 then
 		message = message .. string.format(" | %d locations failed", failed)
 	end

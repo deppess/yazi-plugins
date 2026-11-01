@@ -3,8 +3,12 @@
 
 local M = {}
 
-local set_state = ya.sync(function(state, key, value) state[key] = value end)
-local get_state = ya.sync(function(state, key) return state[key] end)
+local set_state = ya.sync(function(state, key, value)
+	state[key] = value
+end)
+local get_state = ya.sync(function(state, key)
+	return state[key]
+end)
 
 local STATE = {
 	VOLUME_NAME = "volume_name",
@@ -273,11 +277,7 @@ function M:entry()
 	if not get_state(STATE.INITIALIZED) then
 		M:setup()
 	end
-	toggle(
-		get_state(STATE.VOLUME_NAME),
-		get_state(STATE.MOUNT_POINT),
-		get_state(STATE.MAX_RETRIES)
-	)
+	toggle(get_state(STATE.VOLUME_NAME), get_state(STATE.MOUNT_POINT), get_state(STATE.MAX_RETRIES))
 end
 
 return M

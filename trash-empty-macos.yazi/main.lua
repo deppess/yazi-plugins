@@ -106,11 +106,7 @@ local function clear_trash()
 		return false
 	end
 
-	local output, _ = Command("sh")
-		:arg({ "-c", EMPTY_SCRIPT })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:output()
+	local output, _ = Command("sh"):arg({ "-c", EMPTY_SCRIPT }):stdout(Command.PIPED):stderr(Command.PIPED):output()
 	if not output or not output.status or not output.status.success then
 		notify("Failed to clear trash", "error")
 		return false
@@ -126,7 +122,12 @@ local function clear_trash()
 		return true
 	end
 
-	local message = string.format("Emptied %d items | %s freed | %d locations cleared", item_count, format_size(size_before), locations)
+	local message = string.format(
+		"Emptied %d items | %s freed | %d locations cleared",
+		item_count,
+		format_size(size_before),
+		locations
+	)
 	local level = "info"
 
 	if failed > 0 then

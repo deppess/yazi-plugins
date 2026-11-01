@@ -18,8 +18,12 @@ local STATE = {
 -- Keep the index with the library so it follows the library when moved.
 local INDEX_FILENAME = ".media-search-index"
 
-local set_state = ya.sync(function(state, key, val) state[key] = val end)
-local get_state = ya.sync(function(state, key) return state and state[key] end)
+local set_state = ya.sync(function(state, key, val)
+	state[key] = val
+end)
+local get_state = ya.sync(function(state, key)
+	return state and state[key]
+end)
 
 local function notify(content, level)
 	ya.notify({ title = "Media Search", content = content, level = level or "info", timeout = 4 })
@@ -590,10 +594,7 @@ function M:redraw()
 
 	return {
 		ui.Clear(area),
-		ui.Border(ui.Edge.ALL)
-			:area(area)
-			:type(ui.Border.ROUNDED)
-			:style(ui.Style():fg("blue")),
+		ui.Border(ui.Edge.ALL):area(area):type(ui.Border.ROUNDED):style(ui.Style():fg("blue")),
 		ui.Text(body):area(area:pad(ui.Pad(1, 2, 1, 2))):wrap(ui.Wrap.NO),
 	}
 end

@@ -20,13 +20,13 @@ end run]]
 end
 
 local get_ctx = ya.sync(function()
-	local h   = cx.active.current.hovered
+	local h = cx.active.current.hovered
 	local sel = {}
 	for _, file in pairs(cx.active.selected) do
 		sel[#sel + 1] = tostring(file.url)
 	end
 	return {
-		hovered  = h and tostring(h.url) or nil,
+		hovered = h and tostring(h.url) or nil,
 		selected = sel,
 	}
 end)
@@ -37,12 +37,14 @@ end)
 local function load_favorites()
 	local path = os.getenv("HOME") .. "/.config/localsend-cli/config.toml"
 	local f = io.open(path, "r")
-	if not f then return {} end
+	if not f then
+		return {}
+	end
 	local content = f:read("*a")
 	f:close()
 
-	local favs     = {}
-	local in_favs  = false
+	local favs = {}
+	local in_favs = false
 	for line in content:gmatch("[^\n]+") do
 		if line:match("^%[favorites%]") then
 			in_favs = true
@@ -64,7 +66,9 @@ end
 local function whitelist_enabled()
 	local path = os.getenv("HOME") .. "/.config/localsend-cli/config.toml"
 	local f = io.open(path, "r")
-	if not f then return false end
+	if not f then
+		return false
+	end
 	local content = f:read("*a")
 	f:close()
 
@@ -75,8 +79,10 @@ local function whitelist_enabled()
 		elseif line:match("^%[") then
 			in_wl = false
 		elseif in_wl then
-			local val = line:match('^%s*enabled%s*=%s*(%a+)')
-			if val then return val == "true" end
+			local val = line:match("^%s*enabled%s*=%s*(%a+)")
+			if val then
+				return val == "true"
+			end
 		end
 	end
 	return false
@@ -86,14 +92,15 @@ end
 
 local function action_receive()
 	if not whitelist_enabled() then
-		notify("LocalSend", "Whitelist is disabled — this will accept files from any device on the LAN. Enable [whitelist] in config.toml to restrict this.", "warn")
+		notify(
+			"LocalSend",
+			"Whitelist is disabled — this will accept files from any device on the LAN. Enable [whitelist] in config.toml to restrict this.",
+			"warn"
+		)
 	end
 
-	local output, err = Command("localsend-cli")
-		:arg({ "receive", "--headless" })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:output()
+	local output, err =
+		Command("localsend-cli"):arg({ "receive", "--headless" }):stdout(Command.PIPED):stderr(Command.PIPED):output()
 	if not output then
 		notify("LocalSend", "Could not start receive: " .. tostring(err), "error")
 		return
@@ -109,7 +116,11 @@ local function action_receive()
 	end
 	if #files == 0 then
 		if not output.status.success then
-			notify("LocalSend", output.stderr:gsub("%s+$", "") ~= "" and output.stderr:gsub("%s+$", "") or "Receive failed", "error")
+			notify(
+				"LocalSend",
+				output.stderr:gsub("%s+$", "") ~= "" and output.stderr:gsub("%s+$", "") or "Receive failed",
+				"error"
+			)
 		end
 		return
 	end
@@ -133,16 +144,12 @@ local function action_send()
 	local devices = load_favorites()
 
 	if #devices == 0 then
-		local out = Command("localsend-cli")
-			:arg({ "discover" })
-			:stdout(Command.PIPED)
-			:stderr(Command.NULL)
-			:output()
+		local out = Command("localsend-cli"):arg({ "discover" }):stdout(Command.PIPED):stderr(Command.NULL):output()
 		if out and out.stdout and out.stdout ~= "" then
 			local seen = {}
 			for obj in out.stdout:gmatch("%b{}") do
 				local alias = obj:match('"alias"%s*:%s*"([^"]*)"')
-				local ip    = obj:match('"ip"%s*:%s*"([^"]*)"')
+				local ip = obj:match('"ip"%s*:%s*"([^"]*)"')
 				if alias and ip and not seen[ip] then
 					seen[ip] = true
 					devices[#devices + 1] = { alias = alias, ip = ip }
@@ -160,11 +167,15 @@ local function action_send()
 	local cands = {}
 	for i, d in ipairs(devices) do
 		cands[#cands + 1] = { on = tostring(i), desc = d.alias .. "  " .. d.ip }
-		if i == 9 then break end
+		if i == 9 then
+			break
+		end
 	end
 
-	local idx = ya.which { cands = cands }
-	if not idx then return end
+	local idx = ya.which({ cands = cands })
+	if not idx then
+		return
+	end
 
 	local ip = devices[idx].ip
 
@@ -213,8 +224,10 @@ end
 
 function M:entry(job)
 	local cmd = job.args[1]
-	if     cmd == "receive" then action_receive()
-	elseif cmd == "send"    then action_send()
+	if cmd == "receive" then
+		action_receive()
+	elseif cmd == "send" then
+		action_send()
 	end
 end
 

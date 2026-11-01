@@ -29,15 +29,15 @@ end)
 -- ── Yazi context ──────────────────────────────────────────────────────────────
 
 local get_ctx = ya.sync(function()
-	local h   = cx.active.current.hovered
+	local h = cx.active.current.hovered
 	local sel = {}
 	for _, file in pairs(cx.active.selected) do
 		sel[#sel + 1] = tostring(file.url)
 	end
 	return {
-		hovered        = h and tostring(h.url) or nil,
+		hovered = h and tostring(h.url) or nil,
 		hovered_is_dir = h and h.cha and h.cha.is_dir or false,
-		selected       = sel,
+		selected = sel,
 	}
 end)
 
@@ -53,21 +53,20 @@ local function path_is_dir(path)
 end
 
 local function is_mounted(path)
-	local res = Command("mountpoint")
-		:arg({ "-q", path })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:spawn()
-		:wait()
+	local res = Command("mountpoint"):arg({ "-q", path }):stdout(Command.PIPED):stderr(Command.PIPED):spawn():wait()
 	return res and res.success
 end
 
 -- Returns the first meaningful line from sfync stderr.
 local function parse_err(raw)
-	if not raw or raw == "" then return "Unknown error" end
+	if not raw or raw == "" then
+		return "Unknown error"
+	end
 	for line in raw:gmatch("[^\r\n]+") do
 		local t = line:gsub("^%s+", ""):gsub("%s+$", "")
-		if t ~= "" then return t end
+		if t ~= "" then
+			return t
+		end
 	end
 	return "Unknown error"
 end
@@ -144,7 +143,7 @@ local function load_config()
 	local profiles = {}
 	-- %b{} matches balanced braces, safe against nested structures.
 	for name, block in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
-		local ctx  = block:match('"context"%s*:%s*"([^"]*)"')
+		local ctx = block:match('"context"%s*:%s*"([^"]*)"')
 		local host = block:match('"host"%s*:%s*"([^"]*)"')
 		if ctx and ctx ~= "" then
 			profiles[name] = { context = ctx, host = host or "remote" }
@@ -188,11 +187,7 @@ local function run_output(sfync_sub, profile_name)
 	end
 	args[#args + 1] = profile_name
 
-	local out, err = Command("sfync")
-		:arg(args)
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:output()
+	local out, err = Command("sfync"):arg(args):stdout(Command.PIPED):stderr(Command.PIPED):output()
 
 	local title = "sfync " .. sfync_sub .. " " .. profile_name
 	if not out then
@@ -217,13 +212,20 @@ end
 
 local function dir_action(sfync_sub)
 	local ctx = get_ctx()
-	if not ctx.hovered or not ctx.hovered_is_dir then return end
+	if not ctx.hovered or not ctx.hovered_is_dir then
+		return
+	end
 
 	local profiles, err = load_config()
-	if not profiles then notify("SFTP Error", err, "error"); return end
+	if not profiles then
+		notify("SFTP Error", err, "error")
+		return
+	end
 
 	local name = find_exact(profiles, ctx.hovered)
-	if not name then return end  -- silently ignore non-profile dirs
+	if not name then
+		return
+	end -- silently ignore non-profile dirs
 
 	run_output(sfync_sub, name)
 end
@@ -309,32 +311,40 @@ local function run_transfer(op, profile_name, host, context, items)
 		if path_is_dir(item) then
 			-- Expand directory: sfync push/pull each contained file individually.
 			lines[#lines + 1] = "for _f in (find " .. ya.quote(item) .. " -type f)"
-			lines[#lines + 1] = "    sfync " .. op .. " " .. ya.quote(profile_name)
-				.. " $_f || set _errs $_errs (string replace " .. ya.quote(context .. "/") .. " '' $_f)"
+			lines[#lines + 1] = "    sfync "
+				.. op
+				.. " "
+				.. ya.quote(profile_name)
+				.. " $_f || set _errs $_errs (string replace "
+				.. ya.quote(context .. "/")
+				.. " '' $_f)"
 			lines[#lines + 1] = "end"
 		else
 			local base = item:match("([^/]+)$") or item
-			lines[#lines + 1] = "sfync " .. op .. " " .. ya.quote(profile_name)
-				.. " " .. ya.quote(item) .. " || set _errs $_errs " .. ya.quote(base)
+			lines[#lines + 1] = "sfync "
+				.. op
+				.. " "
+				.. ya.quote(profile_name)
+				.. " "
+				.. ya.quote(item)
+				.. " || set _errs $_errs "
+				.. ya.quote(base)
 		end
 	end
 
-	local ok_title  = op == "push" and "File Uploaded"   or "File Downloaded"
+	local ok_title = op == "push" and "File Uploaded" or "File Downloaded"
 	local err_title = op == "push" and "SFTP Push Error" or "SFTP Pull Error"
-	local ok_msg    = op == "push"
-		and ("Uploaded to " .. host)
-		or  ("Downloaded from " .. host)
+	local ok_msg = op == "push" and ("Uploaded to " .. host) or ("Downloaded from " .. host)
 
 	lines[#lines + 1] = "if test (count $_errs) -gt 0"
-	lines[#lines + 1] = "    notify-send " .. ya.quote(err_title)
-		.. " (string join '\\n' 'Failed:' $_errs)"
+	lines[#lines + 1] = "    notify-send " .. ya.quote(err_title) .. " (string join '\\n' 'Failed:' $_errs)"
 	lines[#lines + 1] = "else"
 	lines[#lines + 1] = "    notify-send " .. ya.quote(ok_title) .. " " .. ya.quote(ok_msg)
 	lines[#lines + 1] = "end"
 
 	ya.emit("shell", {
 		table.concat(lines, "\n"),
-		block   = false,
+		block = false,
 		confirm = false,
 	})
 end
@@ -354,10 +364,13 @@ local function file_action(op)
 	end
 
 	local profiles, err = load_config()
-	if not profiles then notify("SFTP Error", err, "error"); return end
+	if not profiles then
+		notify("SFTP Error", err, "error")
+		return
+	end
 
 	-- Group targets by profile; collect items with no matching profile.
-	local groups    = {}
+	local groups = {}
 	local unmatched = {}
 
 	for _, target in ipairs(targets) do
@@ -387,20 +400,25 @@ end
 
 local function action_mount()
 	local ctx = get_ctx()
-	if not ctx.hovered or not ctx.hovered_is_dir then return end
+	if not ctx.hovered or not ctx.hovered_is_dir then
+		return
+	end
 
 	local profiles, err = load_config()
-	if not profiles then notify("SFTP Error", err, "error"); return end
+	if not profiles then
+		notify("SFTP Error", err, "error")
+		return
+	end
 
 	local name, profile = find_exact(profiles, ctx.hovered)
-	if not name then return end  -- silently ignore
+	if not name then
+		return
+	end -- silently ignore
 
 	-- Enforce single-mount limit via state.
 	local current = get_state(K_PROFILE)
 	if current then
-		notify("SFTP Mount Error",
-			"Already mounted: " .. current .. ". Press vM to unmount first.",
-			"error")
+		notify("SFTP Mount Error", "Already mounted: " .. current .. ". Press vM to unmount first.", "error")
 		return
 	end
 
@@ -415,11 +433,7 @@ local function action_mount()
 
 	notify("SFTP Mount", "Mounting " .. name .. "...", "info")
 
-	local out, cerr = Command("sfync")
-		:arg({ "mount", name })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:output()
+	local out, cerr = Command("sfync"):arg({ "mount", name }):stdout(Command.PIPED):stderr(Command.PIPED):output()
 
 	if out and out.status.success then
 		set_state(K_PROFILE, name)
@@ -427,29 +441,30 @@ local function action_mount()
 		ya.emit("cd", { profile.context })
 		notify("SFTP Mount", "Mounted " .. name, "info")
 	else
-		notify("SFTP Mount Error",
-			parse_err((out and out.stderr) or tostring(cerr or "")),
-			"error")
+		notify("SFTP Mount Error", parse_err((out and out.stderr) or tostring(cerr or "")), "error")
 	end
 end
 
 -- ── Unmount ───────────────────────────────────────────────────────────────────
 
 local function action_unmount()
-	local name    = get_state(K_PROFILE)
+	local name = get_state(K_PROFILE)
 	local context = get_state(K_CONTEXT)
 
 	-- State recovery: scan all profile contexts if state was lost (yazi restart).
 	if not name then
 		local profiles, perr = load_config()
-		if not profiles then notify("SFTP Error", perr, "error"); return end
+		if not profiles then
+			notify("SFTP Error", perr, "error")
+			return
+		end
 
 		local count = 0
 		for pname, p in pairs(profiles) do
 			if is_mounted(p.context) then
-				name    = pname
+				name = pname
 				context = p.context
-				count   = count + 1
+				count = count + 1
 			end
 		end
 
@@ -458,18 +473,12 @@ local function action_unmount()
 			return
 		end
 		if count > 1 then
-			notify("SFTP Unmount Error",
-				"Multiple profiles mounted — run: sfync unmount --all",
-				"error")
+			notify("SFTP Unmount Error", "Multiple profiles mounted — run: sfync unmount --all", "error")
 			return
 		end
 	end
 
-	local out, cerr = Command("sfync")
-		:arg({ "unmount", name })
-		:stdout(Command.PIPED)
-		:stderr(Command.PIPED)
-		:output()
+	local out, cerr = Command("sfync"):arg({ "unmount", name }):stdout(Command.PIPED):stderr(Command.PIPED):output()
 
 	if out and out.status.success then
 		set_state(K_PROFILE, nil)
@@ -477,9 +486,7 @@ local function action_unmount()
 		ya.emit("cd", { context })
 		notify("SFTP Unmount", "Unmounted " .. name, "info")
 	else
-		notify("SFTP Unmount Error",
-			parse_err((out and out.stderr) or tostring(cerr or "")),
-			"error")
+		notify("SFTP Unmount Error", parse_err((out and out.stderr) or tostring(cerr or "")), "error")
 	end
 end
 
@@ -487,14 +494,22 @@ end
 
 function M:entry(job)
 	local cmd = job.args[1]
-	if     cmd == "up"      then dir_action("up")
-	elseif cmd == "down"    then dir_action("down")
-	elseif cmd == "du"      then dir_action("diff up")
-	elseif cmd == "dd"      then dir_action("diff down")
-	elseif cmd == "push"    then file_action("push")
-	elseif cmd == "pull"    then file_action("pull")
-	elseif cmd == "mount"   then action_mount()
-	elseif cmd == "unmount" then action_unmount()
+	if cmd == "up" then
+		dir_action("up")
+	elseif cmd == "down" then
+		dir_action("down")
+	elseif cmd == "du" then
+		dir_action("diff up")
+	elseif cmd == "dd" then
+		dir_action("diff down")
+	elseif cmd == "push" then
+		file_action("push")
+	elseif cmd == "pull" then
+		file_action("pull")
+	elseif cmd == "mount" then
+		action_mount()
+	elseif cmd == "unmount" then
+		action_unmount()
 	end
 end
 
