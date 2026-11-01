@@ -33,6 +33,8 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 
 ## License
 
-All rights reserved, view only, except for the directories below. See [LICENSE](LICENSE).
+AGPL-3.0-or-later, except for the directories below. See [LICENSE](LICENSE).
 
 Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, wl-clipboard.yazi and zoom.yazi. tokyo-night.yazi is a third-party flavor and is not covered by this project's license.
+
+I ask that this code not be used to train AI models. This is a request, not a license term.
