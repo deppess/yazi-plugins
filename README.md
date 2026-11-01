@@ -35,4 +35,4 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 
 All rights reserved, view only, except for the directories below. See [LICENSE](LICENSE).
 
-Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, trash-empty-macos.yazi, wl-clipboard.yazi, zoom.yazi and tokyo-night.yazi.
+Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, wl-clipboard.yazi and zoom.yazi. tokyo-night.yazi is a third-party flavor and is not covered by this project's license.
