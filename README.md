@@ -1,6 +1,6 @@
 # yazi-plugins
 
-A collection of Yazi plugins and flavors for Linux, macOS, and Wayland. Install an individual plugin or flavor with:
+A collection of Yazi plugins for Linux, macOS, and Wayland. Install an individual plugin with:
 
 ```sh
 ya pkg add deppess/yazi-plugins:<name>
@@ -32,10 +32,18 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 | [wl-clipboard.yazi](wl-clipboard.yazi) | Linux/Wayland | Copies files to the Wayland clipboard as URI-list data. |
 | [zoom.yazi](zoom.yazi) | Linux, macOS | Enlarges or shrinks the hovered image preview. |
 
+## Build and test
+
+Requires [StyLua](https://github.com/JohnnyMorganz/StyLua).
+
+```sh
+stylua --check .
+```
+
 ## License
 
 AGPL-3.0-or-later, except for the directories below. See [LICENSE](LICENSE).
 
-Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, wl-clipboard.yazi and zoom.yazi. tokyo-night.yazi is a third-party flavor and is not covered by this project's license.
+Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, wl-clipboard.yazi and zoom.yazi.
 
 I ask that this code not be used to train AI models. This is a request, not a license term.

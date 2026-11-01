@@ -1,6 +1,8 @@
 --- @since 26.1.22
 
-local get = ya.sync(function(st, url) return st.last == url and st.level end)
+local get = ya.sync(function(st, url)
+	return st.last == url and st.level
+end)
 
 local save = ya.sync(function(st, url, new)
 	local h = cx.active.current.hovered
@@ -32,14 +34,18 @@ end)
 
 -- Track the most recently shown scratch file (sync state, since peek() runs
 -- in an async context but file lifetime needs to span calls).
-local get_prev_tmp = ya.sync(function(st) return st.prev_tmp end)
-local set_prev_tmp = ya.sync(function(st, path) st.prev_tmp = path end)
+local get_prev_tmp = ya.sync(function(st)
+	return st.prev_tmp
+end)
+local set_prev_tmp = ya.sync(function(st, path)
+	st.prev_tmp = path
+end)
 
 local function end_(job, err)
 	if not job.old_level then
 		ya.preview_widget(job, err and ui.Text(err):area(job.area):wrap(ui.Wrap.YES))
 	elseif err then
-		ya.notify { title = "Zoom", content = tostring(err), timeout = 5, level = "error" }
+		ya.notify({ title = "Zoom", content = tostring(err), timeout = 5, level = "error" })
 	end
 end
 
@@ -138,7 +144,7 @@ local function entry(self, job)
 		peek(self, {
 			area = ui.area("preview"),
 			args = {},
-			file = File { url = st.url, cha = Cha { mode = tonumber("100644", 8) } },
+			file = File({ url = st.url, cha = Cha({ mode = tonumber("100644", 8) }) }),
 			skip = 0,
 			new_level = new,
 			old_level = st.level,

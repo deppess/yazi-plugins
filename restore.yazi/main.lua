@@ -270,10 +270,9 @@ local function restore_selected_files(curr_working_volume, items)
 		local restored_status, err = Command(shell)
 			:arg({
 				"-c",
-				"echo "
-					.. ya.quote(tostring(item.trash_index))
-					.. " | trash-restore --overwrite "
-					.. path_quote(curr_working_volume),
+				"echo " .. ya.quote(tostring(item.trash_index)) .. " | trash-restore --overwrite " .. path_quote(
+					curr_working_volume
+				),
 			})
 			:stdout(Command.PIPED)
 			:stderr(Command.PIPED)
@@ -577,8 +576,10 @@ function M:entry(job)
 			theme.header_warning = ui.Style():fg(theme.header_warning or "yellow")
 			local confirm_body = ui.Text({
 				ui.Line(""),
-				ui.Line("Selected path" .. (#selected_collisions > 1 and "s already exist, overwrite?" or " already exists, overwrite?"))
-					:style(theme.header_warning),
+				ui.Line(
+					"Selected path"
+						.. (#selected_collisions > 1 and "s already exist, overwrite?" or " already exists, overwrite?")
+				):style(theme.header_warning),
 				ui.Line(""),
 				table.unpack(get_components(selected_collisions)),
 			})

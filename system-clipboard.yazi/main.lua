@@ -14,7 +14,12 @@ end)
 return {
 	entry = function()
 		if ya.target_os() ~= "macos" then
-			return ya.notify({ title = "System Clipboard", content = "This plugin only supports macOS", level = "error", timeout = 5 })
+			return ya.notify({
+				title = "System Clipboard",
+				content = "This plugin only supports macOS",
+				level = "error",
+				timeout = 5,
+			})
 		end
 
 		ya.emit("escape", { visual = true })
@@ -37,11 +42,21 @@ return {
 
 		local child, spawn_err = command:spawn()
 		if not child then
-			return ya.notify({ title = "System Clipboard", content = "Could not start osascript: " .. tostring(spawn_err), level = "error", timeout = 5 })
+			return ya.notify({
+				title = "System Clipboard",
+				content = "Could not start osascript: " .. tostring(spawn_err),
+				level = "error",
+				timeout = 5,
+			})
 		end
 		local status, err = child:wait()
 		if status and status.success then
-			ya.notify({ title = "System Clipboard", content = "Copied file(s) to the system clipboard", level = "info", timeout = 5 })
+			ya.notify({
+				title = "System Clipboard",
+				content = "Copied file(s) to the system clipboard",
+				level = "info",
+				timeout = 5,
+			})
 		else
 			ya.notify({
 				title = "System Clipboard",

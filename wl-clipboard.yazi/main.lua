@@ -45,10 +45,7 @@ return {
 			file_list_formatted = file_list_formatted .. "file://" .. encode_uri(path) .. "\r\n"
 		end
 
-		local child, spawn_err = Command("wl-copy")
-			:arg({ "--type", "text/uri-list" })
-			:stdin(Command.PIPED)
-			:spawn()
+		local child, spawn_err = Command("wl-copy"):arg({ "--type", "text/uri-list" }):stdin(Command.PIPED):spawn()
 		if not child then
 			return ya.notify({
 				title = "System Clipboard",
