@@ -4,6 +4,8 @@
 CLAUDE.md
 AGENTS.md
 GEMINI.md
+HANDOFF.md
+.local/
 
 # OS and secrets
 .DS_Store
