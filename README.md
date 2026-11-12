@@ -19,6 +19,7 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 | [fs-usage-macos.yazi](fs-usage-macos.yazi) | Linux, macOS | Shows the current filesystem's used space; includes BSD-compatible macOS handling. |
 | [localsend-cli-ui.yazi](localsend-cli-ui.yazi) | Linux, macOS | Sends and receives files through `localsend-cli`. |
 | [media-search.yazi](media-search.yazi) | Linux, macOS | Searches folders under a configured media-library root. |
+| [metaclean.yazi](metaclean.yazi) | macOS | Removes identity metadata from photos, video and audio without re-encoding. |
 | [restore.yazi](restore.yazi) | Linux | Restores files managed by `trash-cli`. |
 | [sfync.yazi](sfync.yazi) | Linux, macOS | Syncs, compares, transfers, and mounts sfync profiles. |
 | [sudo.yazi](sudo.yazi) | Linux | Runs supported file operations through `sudo`. |

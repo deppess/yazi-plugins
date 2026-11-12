@@ -1,0 +1,12 @@
+# Isolated configuration for manual Yazi integration testing only.
+# Do not add these keybindings to the user's real configuration during development.
+
+[[mgr.prepend_keymap]]
+on = ["m", "c"]
+run = "plugin metaclean"
+desc = "MetaClean laboratory test"
+
+[[mgr.prepend_keymap]]
+on = ["m", "p"]
+run = "plugin metaclean preview"
+desc = "MetaClean laboratory preview"

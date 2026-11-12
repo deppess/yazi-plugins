@@ -1,0 +1,6 @@
+/originals/*
+/working/*
+/reports/*
+!/originals/.gitkeep
+!/working/.gitkeep
+!/reports/.gitkeep
