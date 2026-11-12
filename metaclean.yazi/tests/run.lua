@@ -2514,6 +2514,27 @@ local function main()
 			values = { [key] = { "(Binary data 60 bytes, use -b option to extract)" } },
 		})
 		assert(not ok and tostring(err):find("dfLa box size", 1, true), "oversized dfLa box was accepted")
+		-- ExifTool prints a two-byte chroma location as text.
+		key = "Track1:Unknown_chrm"
+		for value, accepted in pairs({ [""] = true, ["\1"] = true, ["abc"] = false }) do
+			ok, err = helpers.policies.MP4.preflight(absolute(RUN .. "/flac.mp4"), {
+				entries = { key },
+				values = { [key] = { value } },
+			})
+			assert((ok ~= nil) == accepted, "chrm value " .. value .. ": " .. tostring(err))
+		end
+	end)
+
+	record("AVFoundation HEVC export is cleaned", function()
+		-- avconvert writes the chroma location (chrm) in its HEVC sample entry.
+		local path = absolute(RUN .. "/avconvert.mp4")
+		local ok, out = execute({ "avconvert", "-s", mp4_safe, "-o", path, "-p", "PresetHEVC1920x1080" })
+		assert(ok, out)
+		assert(tags(path, { "-u" }):find("Unknown_chrm", 1, true), "export lacks a chrm box")
+		local frames = framehash(path)
+		assert_sanitized(path)
+		assert(framehash(path) == frames, "decoded video changed")
+		assert(select(2, process(path)) == "unchanged", "cleaned export is not reported clean")
 	end)
 
 	record("QuickTime media data no sample uses is zeroed", function()
@@ -2551,6 +2572,69 @@ local function main()
 			execute({ "ffprobe", "-v", "error", "-show_packets", "-show_data_hash", "sha256", path })
 		assert(packets_after == packets_before, "QuickTime packets changed")
 		assert(select(2, process(path)) == "unchanged", "cleaned file is not reported clean")
+	end)
+
+	record("preview window lists files sorted, with removed tags by group", function()
+		local lines = helpers.preview_report("/media", {
+			{
+				path = "/media/b.jpg",
+				removed = {
+					"IFD0:Model",
+					"Filesystem:Finder tags",
+					"GPS:GPSLatitude",
+					"File:Comment",
+					"IFD0:Make",
+					"JPEG comment segment",
+				},
+			},
+			{ path = "/media/A/c.mov", removed = { "Track1:Encoder", "ItemList:Title" } },
+		}, { { path = "/media/clean.png" } }, {
+			{ path = "/media/z.pdf", reason = "unsupported format PDF" },
+			{ path = "/elsewhere/y.txt", reason = "unsupported format TXT" },
+		})
+		local text, kinds = {}, {}
+		for index, line in ipairs(lines) do
+			text[index], kinds[index] = line.text, line.kind
+		end
+		local expected = {
+			"2 to clean · 1 already clean · 2 would be skipped",
+			"",
+			"To clean (2)",
+			"  A/c.mov",
+			"    ItemList  Title",
+			"    Track1    Encoder",
+			"  b.jpg",
+			"    File        Comment",
+			"    GPS         GPSLatitude",
+			"    IFD0        Make, Model",
+			"    Filesystem  Finder tags",
+			"    JPEG comment segment",
+			"",
+			"Already clean (1)",
+			"  clean.png",
+			"",
+			"Would be skipped (2)",
+			"  /elsewhere/y.txt",
+			"    Unsupported format TXT",
+			"  z.pdf",
+			"    Unsupported format PDF",
+		}
+		assert(table.concat(text, "\n") == table.concat(expected, "\n"), "report:\n" .. table.concat(text, "\n"))
+		assert(kinds[1] == "summary" and kinds[3] == "clean" and kinds[17] == "skipped" and kinds[19] == "reason")
+		-- Long tag lists wrap under their group with a hanging indent.
+		local tags = {}
+		for index = 1, 30 do
+			tags[index] = string.format("XMP-test:LongTagName%02d", index)
+		end
+		lines = helpers.preview_report("/media", { { path = "/media/x.jpg", removed = tags } }, {}, {})
+		assert(#lines > 5 and lines[5].text:find("^    XMP%-test  LongTagName01,"), "long tag list was not wrapped")
+		for index = 5, #lines do
+			assert(#lines[index].text <= 76, "line too wide: " .. lines[index].text)
+			assert(
+				index == 5 or lines[index].text:find("^" .. string.rep(" ", 14) .. "%S"),
+				"wrapped line not indented"
+			)
+		end
 	end)
 
 	record("preview reports removals and changes nothing", function()

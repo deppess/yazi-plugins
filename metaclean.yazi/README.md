@@ -184,14 +184,18 @@ The plugin cleans the selected files and folders, or the hovered file when
 nothing is selected. Choose a key that does not conflict with your other
 bindings.
 
-With `preview`, nothing is written: MetaClean reports which files it would
-clean, which metadata groups it would remove (the tag names for a single
-file) and which files it would skip and why. A cleaned file still has to
-pass every check, so a previewed file can still be skipped.
+With `preview`, nothing is written. A scrollable window lists the files
+MetaClean would clean, each with the tags it would remove grouped by
+metadata group, then the files that are already clean and the files it
+would skip with the reason; files, groups and tags are sorted. Scroll with
+`j`/`k`, the arrow keys, `Ctrl-d`/`Ctrl-u`, `Space` or the mouse wheel,
+jump with `g`/`G`, and close with `q`, `Esc` or `Enter`. A cleaned file
+still has to pass every check, so a previewed file can still be skipped.
 
-When files are skipped, the summary groups them by reason, most common
-first, with an example file for each. Batches of 200 or more files report
-their progress at each quarter.
+After cleaning, a notification summarizes the result. When files are
+skipped, it groups them by reason, most common first, with an example file
+for each. Batches of 200 or more files report their progress at each
+quarter.
 
 ## Build and test
 

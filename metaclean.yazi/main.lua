@@ -56,14 +56,15 @@ local TIMEOUT_BYTES_PER_SECOND = 4 * 1024 * 1024
 local NEUTRAL_TOUCH_TIME = "200101010000.00"
 local QUICKTIME_NEUTRAL_DATE = "0000:00:00 00:00:00"
 
--- Removed from the staged file; every other extended attribute, including
--- resource forks, quarantine, provenance and com.apple.macl, is preserved.
+-- Removed from the staged file, with the name the preview shows; every other
+-- extended attribute, including resource forks, quarantine, provenance and
+-- com.apple.macl, is preserved.
 local FILESYSTEM_IDENTITY_XATTRS = {
-	["com.apple.metadata:_kMDItemUserTags"] = true,
-	["com.apple.metadata:kMDItemFinderComment"] = true,
-	["com.apple.metadata:kMDItemWhereFroms"] = true,
-	["com.apple.lastuseddate#PS"] = true,
-	["com.apple.metadata:kMDItemDownloadedDate"] = true,
+	["com.apple.metadata:_kMDItemUserTags"] = "Finder tags",
+	["com.apple.metadata:kMDItemFinderComment"] = "Finder comment",
+	["com.apple.metadata:kMDItemWhereFroms"] = "Download source",
+	["com.apple.lastuseddate#PS"] = "Last opened date",
+	["com.apple.metadata:kMDItemDownloadedDate"] = "Download date",
 }
 
 -- Directory packages are owned by an application (Photos, Final Cut, Xcode,
@@ -987,17 +988,26 @@ local function dates_neutral(path)
 	return dates.stdout:gsub("%s+$", "") == expected .. "|" .. expected
 end
 
+-- Whether the file's filesystem metadata is clean, and what cleaning changes
+-- in it, by name.
 local function filesystem_clean(path)
 	local names, err = xattr_names(path)
 	if not names then
 		return nil, err
 	end
+	local changes = {}
 	for _, name in ipairs(names) do
 		if FILESYSTEM_IDENTITY_XATTRS[name] then
-			return false
+			changes[#changes + 1] = FILESYSTEM_IDENTITY_XATTRS[name]
 		end
 	end
-	return dates_neutral(path)
+	local neutral, dates_err = dates_neutral(path)
+	if neutral == nil then
+		return nil, dates_err
+	elseif not neutral then
+		changes[#changes + 1] = "File dates"
+	end
+	return #changes == 0, changes
 end
 
 local sha256_command
@@ -5033,6 +5043,8 @@ local QUICKTIME_CODEC_BOXES = {
 	pcmC = 6,
 	-- Bit rates, named by ExifTool except in a chapter track's text entry.
 	btrt = 12,
+	-- Chroma sample location, which AVFoundation writes in HEVC exports.
+	chrm = 2,
 }
 
 local QUICKTIME_TRACK_TAGS = {
@@ -6151,7 +6163,10 @@ local function quicktime_policy(streams)
 				local box = key:match("^Track%d+:Unknown_(%w+)$")
 				local limit = box and QUICKTIME_CODEC_BOXES[box]
 				for _, value in ipairs(limit and inventory.values[key] or {}) do
+					-- ExifTool prints a payload of a few bytes as text, without
+					-- its NUL bytes; four bytes hold nothing identifying.
 					local size = tonumber(value:match("^%(Binary data (%d+) bytes"))
+						or limit <= 4 and #value <= limit and #value
 					if not size or size > limit then
 						return nil, "unexpected QuickTime " .. box .. " box size"
 					end
@@ -10778,9 +10793,9 @@ local function process_file(path, worker, preview)
 	end
 	local embedded_clean = structure_clean and metadata_clean(before, spec)
 	if preview then
-		local clean, clean_err = filesystem_clean(path)
+		local clean, changes = filesystem_clean(path)
 		if clean == nil then
-			return nil, clean_err
+			return nil, changes
 		elseif embedded_clean then
 			-- As in a real run, this Mac's identifiers make the file skip.
 			local ok, residue_err = identity_residue(path, before, before, spec)
@@ -10794,8 +10809,8 @@ local function process_file(path, worker, preview)
 		if not structure_clean then
 			removed[#removed + 1] = structure_err
 		end
-		if not clean then
-			removed[#removed + 1] = "file dates or Finder data"
+		for _, change in ipairs(changes) do
+			removed[#removed + 1] = "Filesystem:" .. change
 		end
 		return true, "preview", removed
 	end
@@ -11008,6 +11023,265 @@ local function confirm(count, has_directory)
 	})
 end
 
+-- Preview window -------------------------------------------------------------
+
+-- The preview's lines as { text, kind } pairs: a summary, then the files to
+-- clean with their removed metadata by group, the files already clean and the
+-- files that would be skipped. Paths are shown relative to base and sorted;
+-- groups and tags are sorted, then come the file's Filesystem changes and
+-- descriptions that are not tags.
+local PREVIEW = { WIDTH = 76 }
+
+function PREVIEW.report(base, cleaned, unchanged, skipped)
+	local function shown(path)
+		local relative = base and path:sub(1, #base + 1) == base .. "/" and path:sub(#base + 2)
+		return relative or path
+	end
+	local function by_path(list)
+		table.sort(list, function(a, b)
+			local x, y = shown(a.path):lower(), shown(b.path):lower()
+			return x < y or x == y and a.path < b.path
+		end)
+		return list
+	end
+	local lines = {}
+	local function add(text, kind)
+		lines[#lines + 1] = { text = text, kind = kind }
+	end
+	-- Words are wrapped at the window width under a hanging indent.
+	local function wrapped(label, words)
+		local indent = string.rep(" ", #label)
+		local line = label
+		for index, word in ipairs(words) do
+			local piece = index < #words and word .. "," or word
+			if #line > #label and #line + 1 + #piece > PREVIEW.WIDTH then
+				add(line, "tags")
+				line = indent .. piece
+			else
+				line = line .. (#line > #label and " " or "") .. piece
+			end
+		end
+		add(line, "tags")
+	end
+	local parts = { string.format("%d to clean", #cleaned), string.format("%d already clean", #unchanged) }
+	if #skipped > 0 then
+		parts[#parts + 1] = string.format("%d would be skipped", #skipped)
+	end
+	add(table.concat(parts, " · "), "summary")
+	if #cleaned > 0 then
+		add("", "blank")
+		add(string.format("To clean (%d)", #cleaned), "clean")
+		for _, entry in ipairs(by_path(cleaned)) do
+			add("  " .. shown(entry.path), "file")
+			local groups, names, other = {}, {}, {}
+			for _, key in ipairs(entry.removed or {}) do
+				local group, tag = key:match("^([^:]+):(.+)$")
+				if group then
+					if not groups[group] then
+						groups[group], names[#names + 1] = {}, group
+					end
+					groups[group][tag] = true
+				else
+					other[key] = true
+				end
+			end
+			table.sort(names, function(a, b)
+				if (a == "Filesystem") ~= (b == "Filesystem") then
+					return b == "Filesystem"
+				end
+				return a:lower() < b:lower()
+			end)
+			local width = 0
+			for _, group in ipairs(names) do
+				width = math.max(width, #group)
+			end
+			for _, group in ipairs(names) do
+				local tags = {}
+				for tag in pairs(groups[group]) do
+					tags[#tags + 1] = tag
+				end
+				table.sort(tags)
+				wrapped("    " .. group .. string.rep(" ", width - #group + 2), tags)
+			end
+			local notes = {}
+			for note in pairs(other) do
+				notes[#notes + 1] = note
+			end
+			table.sort(notes)
+			for _, note in ipairs(notes) do
+				add("    " .. note:gsub("^%l", string.upper), "note")
+			end
+		end
+	end
+	if #unchanged > 0 then
+		add("", "blank")
+		add(string.format("Already clean (%d)", #unchanged), "unchanged")
+		for _, entry in ipairs(by_path(unchanged)) do
+			add("  " .. shown(entry.path), "file")
+		end
+	end
+	if #skipped > 0 then
+		add("", "blank")
+		add(string.format("Would be skipped (%d)", #skipped), "skipped")
+		for _, entry in ipairs(by_path(skipped)) do
+			add("  " .. shown(entry.path), "file")
+			add("    " .. entry.reason:gsub("^%l", string.upper), "reason")
+		end
+	end
+	return lines
+end
+
+PREVIEW.KEYS = {
+	{ on = "q", run = "close" },
+	{ on = "<Esc>", run = "close" },
+	{ on = "<Enter>", run = "close" },
+	{ on = "j", run = 1 },
+	{ on = "<Down>", run = 1 },
+	{ on = "k", run = -1 },
+	{ on = "<Up>", run = -1 },
+	{ on = "<C-d>", run = "half" },
+	{ on = "<PageDown>", run = "page" },
+	{ on = "<Space>", run = "page" },
+	{ on = "<C-u>", run = "-half" },
+	{ on = "<PageUp>", run = "-page" },
+	{ on = "g", run = "top" },
+	{ on = "G", run = "bottom" },
+}
+
+PREVIEW.STYLES = {
+	summary = function(line)
+		return line:bold()
+	end,
+	clean = function(line)
+		return line:fg("green"):bold()
+	end,
+	unchanged = function(line)
+		return line:fg("blue"):bold()
+	end,
+	skipped = function(line)
+		return line:fg("yellow"):bold()
+	end,
+	file = function(line)
+		return line:bold()
+	end,
+	tags = function(line)
+		return line
+	end,
+	note = function(line)
+		return line:dim()
+	end,
+	reason = function(line)
+		return line:fg("yellow")
+	end,
+}
+
+PREVIEW.open = ya.sync(function(state, lines)
+	state.preview_lines, state.preview_offset = lines, 0
+	if not state.preview_children then
+		state.preview_children = Modal:children_add(state, 10)
+	end
+	ui.render()
+end)
+
+PREVIEW.close = ya.sync(function(state)
+	if state.preview_children then
+		Modal:children_remove(state.preview_children)
+	end
+	state.preview_children, state.preview_lines, state.preview_offset, state.preview_body = nil, nil, nil, nil
+	ui.render()
+end)
+
+-- step is a line count, a page fraction, or the top or bottom.
+PREVIEW.scroll = ya.sync(function(state, step)
+	local visible = state.preview_body and math.max(1, state.preview_body.h) or 1
+	local last = math.max(0, #(state.preview_lines or {}) - visible)
+	local pages = { half = visible // 2, ["-half"] = -(visible // 2), page = visible, ["-page"] = -visible }
+	local offset = state.preview_offset or 0
+	if step == "top" then
+		offset = 0
+	elseif step == "bottom" then
+		offset = last
+	else
+		offset = offset + (pages[step] or step)
+	end
+	state.preview_offset = math.max(0, math.min(offset, last))
+	ui.render()
+end)
+
+function PREVIEW.show(lines)
+	PREVIEW.open(lines)
+	while true do
+		local index = ya.which({ cands = PREVIEW.KEYS, silent = true })
+		local step = index and PREVIEW.KEYS[index].run
+		if not step or step == "close" then
+			break
+		end
+		PREVIEW.scroll(step)
+	end
+	PREVIEW.close()
+end
+
+-- The plugin is its own modal component while the preview is open: a window
+-- sized to its content, centered, at most 60% of the terminal's height.
+function M:new(area)
+	self.preview_area = area
+	return self
+end
+
+function M:layout(area)
+	self.preview_area = area
+end
+
+function M:reflow()
+	return { self }
+end
+
+function M:redraw()
+	local area, lines = self.preview_area, self.preview_lines or {}
+	local w = math.min(PREVIEW.WIDTH + 6, math.max(20, area.w - 4))
+	local h = math.min(#lines + 4, math.max(8, area.h * 3 // 5))
+	local window = ui.Rect({ x = area.x + (area.w - w) // 2, y = area.y + (area.h - h) // 2, w = w, h = h })
+	local inner = window:pad(ui.Pad(1, 2, 1, 2))
+	local chunks = ui.Layout()
+		:direction(ui.Layout.VERTICAL)
+		:constraints({ ui.Constraint.Fill(1), ui.Constraint.Length(1) })
+		:split(inner)
+	self.preview_body = chunks[1]
+	local offset = self.preview_offset or 0
+	local body = {}
+	for index = offset + 1, math.min(#lines, offset + chunks[1].h) do
+		local line = lines[index]
+		local style = PREVIEW.STYLES[line.kind] or PREVIEW.STYLES.tags
+		body[#body + 1] = style(ui.Line(ui.truncate(line.text, { max = chunks[1].w })))
+	end
+	local footer = "j/k scroll  g/G top/end  q close"
+	if #lines > chunks[1].h then
+		footer = string.format("%s  %d–%d of %d", footer, offset + 1, offset + #body, #lines)
+	end
+	return {
+		ui.Clear(window),
+		ui.Border(ui.Edge.ALL)
+			:area(window)
+			:type(ui.Border.ROUNDED)
+			:style(ui.Style():fg("blue"))
+			:title(ui.Line(" MetaClean preview "):align(ui.Align.CENTER)),
+		ui.Text(body):area(chunks[1]):wrap(ui.Wrap.NO),
+		ui.Line(ui.truncate(footer, { max = chunks[2].w })):area(chunks[2]):dim(),
+	}
+end
+
+-- Mouse wheel scrolling.
+function M:scroll(_, step)
+	self.preview_offset = math.max(0, (self.preview_offset or 0) + step)
+	local visible = self.preview_body and self.preview_body.h or 1
+	self.preview_offset = math.min(self.preview_offset, math.max(0, #(self.preview_lines or {}) - visible))
+	ui.render()
+end
+
+function M:click() end
+
+function M:touch() end
+
 -- `plugin metaclean preview` reports what would be removed without
 -- writing anything.
 function M:entry(job)
@@ -11047,6 +11321,7 @@ function M:entry(job)
 		notify(string.format(preview and "Checking %d files…" or "Cleaning %d files…", #files))
 	end
 	local sanitized, unchanged, failures, removals, next_file = 0, 0, {}, {}, 1
+	local clean_files = {}
 	-- Large batches report progress at each quarter.
 	local done, quarter = 0, #files >= 200 and 1 or 4
 	-- Workers share the queue; Lua runs one of them at a time between yields.
@@ -11060,11 +11335,12 @@ function M:entry(job)
 				local ok, result, removed = process_file(path, id, preview)
 				if ok and result == "unchanged" then
 					unchanged = unchanged + 1
+					clean_files[#clean_files + 1] = { path = path }
 				elseif ok then
 					sanitized = sanitized + 1
-					removals[#removals + 1] = { index = index, name = name, removed = removed }
+					removals[#removals + 1] = { index = index, name = name, path = path, removed = removed }
 				else
-					failures[#failures + 1] = { index = index, name = name, reason = tostring(result) }
+					failures[#failures + 1] = { index = index, name = name, path = path, reason = tostring(result) }
 				end
 				done = done + 1
 				if quarter < 4 and done >= #files * quarter / 4 then
@@ -11085,10 +11361,14 @@ function M:entry(job)
 		workers[id] = worker(id)
 	end
 	ya.join(table.unpack(workers))
+	if preview then
+		PREVIEW.show(PREVIEW.report(roots[1]:match("^(.*)/[^/]*$"), removals, clean_files, failures))
+		return
+	end
 
 	-- Entries grouped by key, the most common first, each with an example
 	-- file; at most limit groups, then a count of the rest.
-	local function grouped(entries, keys, limit, lines, counted_only)
+	local function grouped(entries, keys, limit, lines)
 		table.sort(entries, function(a, b)
 			return a.index < b.index
 		end)
@@ -11112,22 +11392,13 @@ function M:entry(job)
 		for index = 1, math.min(limit, #order) do
 			local group = order[index]
 			local example = group.count == 1 and group.name or group.name .. " and " .. (group.count - 1) .. " more"
-			if counted_only then
-				example = group.count == 1 and "1 file" or group.count .. " files"
-			end
 			lines[#lines + 1] = string.format("%s (%s)", group.key, example)
 		end
 		if #order > limit then
-			lines[#lines + 1] = string.format("and %d more %s", #order - limit, counted_only and "groups" or "reasons")
+			lines[#lines + 1] = string.format("and %d more reasons", #order - limit)
 		end
 	end
-	local lines = {
-		string.format(
-			preview and "Preview: %d to clean, %d already clean" or "%d sanitized, %d already clean",
-			sanitized,
-			unchanged
-		),
-	}
+	local lines = { string.format("%d sanitized, %d already clean", sanitized, unchanged) }
 	if #failures > 0 then
 		lines[1] = lines[1] .. string.format(", %d skipped", #failures)
 	end
@@ -11135,37 +11406,14 @@ function M:entry(job)
 	local name = #files == 1 and (files[1]:match("([^/]+)$") or files[1])
 	local level = #failures > 0 and "warn" or "info"
 	if name and #failures == 1 then
-		lines = { string.format("%s %s: %s", name, preview and "would be skipped" or "skipped", failures[1].reason) }
+		lines = { string.format("%s skipped: %s", name, failures[1].reason) }
 		failures = {}
 	elseif name and unchanged == 1 then
 		lines = { name .. " is already clean" }
-	elseif name and not preview then
+	elseif name then
 		lines = { name .. " cleaned" }
 	end
-	if preview and #removals == 1 and #files == 1 then
-		-- One file: the removed tags themselves.
-		lines = { "Preview: " .. name .. " would be cleaned" }
-		local removed = removals[1].removed
-		local shown = table.move(removed, 1, math.min(12, #removed), 1, {})
-		lines[#lines + 1] = "Removes " .. table.concat(shown, ", ") .. (#removed > 12 and ", …" or "")
-	elseif preview and #removals > 0 then
-		lines[#lines + 1] = "Removes, by metadata group:"
-		grouped(removals, function(entry)
-			local keys = {}
-			for _, key in ipairs(entry.removed) do
-				-- File dates change for nearly every file; they are listed
-				-- only for files with nothing else to remove.
-				if key ~= "file dates or Finder data" or #entry.removed == 1 then
-					keys[#keys + 1] = key:match("^(.-):") and key:match("^(.-):"):gsub("^Track%d+$", "Track") or key
-				end
-			end
-			return keys
-		end, 5, lines, true)
-	end
 	if #failures > 0 then
-		if preview then
-			lines[#lines + 1] = "Would be skipped:"
-		end
 		grouped(failures, function(entry)
 			return { entry.reason }
 		end, 3, lines)
@@ -11192,6 +11440,7 @@ M._test = {
 	minimal_exif = minimal_exif,
 	svg_parse = svg_parse,
 	quicktime_parse = quicktime_parse,
+	preview_report = PREVIEW.report,
 	quicktime_verify = quicktime_verify,
 	heif_parse = heif_parse,
 	verify_regions = verify_regions,
