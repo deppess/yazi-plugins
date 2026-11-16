@@ -15,8 +15,7 @@ local ROOT = "metaclean.yazi/tests"
 local WORKING = ROOT .. "/working"
 local ORIGINALS = ROOT .. "/originals"
 local REPORTS = ROOT .. "/reports"
-local RUN_ID = "run-" .. os.date("!%Y%m%dT%H%M%SZ")
-local RUN = WORKING .. "/" .. RUN_ID
+local RUN_ID, RUN
 
 local tests, started = {}, os.time()
 
@@ -974,10 +973,18 @@ end
 local function main()
 	mkdir(WORKING)
 	mkdir(REPORTS)
-	if execute({ "test", "-d", RUN }) then
-		safe_remove(RUN)
+	local stem, suffix = "run-" .. os.date("!%Y%m%dT%H%M%SZ"), 0
+	while true do
+		RUN_ID = stem .. (suffix == 0 and "" or "-" .. tostring(suffix))
+		RUN = WORKING .. "/" .. RUN_ID
+		-- mkdir is atomic, so simultaneous runners get distinct laboratories
+		-- instead of deleting or sharing each other's fixtures.
+		if execute({ "mkdir", "--", RUN }) then
+			break
+		end
+		suffix = suffix + 1
+		assert(suffix < 100, "too many laboratory run directory collisions")
 	end
-	mkdir(RUN)
 	local marker = assert(io.open(RUN .. "/.metaclean-lab", "w"))
 	marker:write("MetaClean disposable test run\n")
 	marker:close()
@@ -1001,6 +1008,17 @@ local function main()
 			end
 		end)
 		assert(exiftool_calls > 0 and isolated, "ExifTool ran without an isolated configuration")
+	end)
+
+	record("missing timeout is reported as timeout", function()
+		local plugin, restore = production_plugin(function(args)
+			if args[1] == "timeout" and args[2] == "--version" then
+				return { success = false }
+			end
+		end)
+		local missing = plugin._test.missing_tool()
+		restore()
+		assert(missing == "timeout", "missing timeout reported as " .. tostring(missing))
 	end)
 
 	-- A second top-level local of the same name silently replaces the first
@@ -2462,6 +2480,9 @@ local function main()
 		{ "MP4", mp4_safe, "mp4" },
 		{ "M4V", m4v_safe, "m4v" },
 		{ "M4A", m4a_safe, "m4a" },
+		-- ExifTool identifies M4B as M4A, but the documented extension must
+		-- still select the audio-only QuickTime policy.
+		{ "M4B", m4a_safe, "m4b" },
 		{ "MOV", mov_safe, "mov" },
 	}) do
 		record(case[1] .. " transaction neutralizes metadata in place", function()
@@ -4974,7 +4995,11 @@ local function main()
 		return out
 	end
 
-	for _, case in ipairs({ { "TS", "camera.ts", "0" }, { "M2TS", "camera.m2ts", "1" } }) do
+	for _, case in ipairs({
+		{ "TS", "camera.ts", "0" },
+		{ "MTS", "camera.mts", "0" },
+		{ "M2TS", "camera.m2ts", "1" },
+	}) do
 		record(case[1] .. " camera metadata in H.264 SEI is neutralized in place", function()
 			local path = RUN .. "/" .. case[2]
 			assert(execute({

@@ -10957,6 +10957,12 @@ end
 -- Checked once per run, so a missing tool is reported once instead of as a
 -- failure for every file.
 local function missing_tool()
+	-- Check the wrapper itself without using it: otherwise a missing timeout
+	-- makes every wrapped probe look as though its inner program were absent.
+	local timeout = Command("timeout"):arg({ "--version" }):stdout(Command.PIPED):stderr(Command.PIPED):output()
+	if not timeout or not timeout.status.success then
+		return "timeout"
+	end
 	for _, tool in ipairs({ { "exiftool", "-ver" }, { "ffprobe", "-version" }, { "ffmpeg", "-version" } }) do
 		local output = command(tool[1], { tool[2] }, 30)
 		if not output then
@@ -11446,6 +11452,7 @@ M._test = {
 	verify_regions = verify_regions,
 	audio = AUDIO,
 	ogg_parse = OGG.parse,
+	missing_tool = missing_tool,
 }
 
 return M
