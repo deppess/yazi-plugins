@@ -1,6 +1,6 @@
 # yazi-plugins
 
-A collection of Yazi plugins for Linux, macOS, and Wayland. Install an individual plugin with:
+A collection of Yazi plugins for macOS and Linux. Install an individual plugin with:
 
 ```sh
 ya pkg add deppess/yazi-plugins:<name>
@@ -14,22 +14,15 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 
 | Plugin | Platform | Description |
 |---|---|---|
-| [crypter.yazi](crypter.yazi) | Linux | Mounts and unmounts a gocryptfs volume. |
 | [crypter-macos.yazi](crypter-macos.yazi) | macOS | Mounts and locks an encrypted APFS volume at a configured path. |
 | [fs-usage-macos.yazi](fs-usage-macos.yazi) | Linux, macOS | Shows the current filesystem's used space; includes BSD-compatible macOS handling. |
-| [localsend-cli-ui.yazi](localsend-cli-ui.yazi) | Linux, macOS | Sends and receives files through `localsend-cli`. |
 | [media-search.yazi](media-search.yazi) | Linux, macOS | Searches folders under a configured media-library root. |
 | [metaclean.yazi](metaclean.yazi) | macOS | Removes identity metadata from photos, video and audio without re-encoding. |
-| [restore.yazi](restore.yazi) | Linux | Restores files managed by `trash-cli`. |
 | [sfync.yazi](sfync.yazi) | Linux, macOS | Syncs, compares, transfers, and mounts sfync profiles. |
 | [sudo.yazi](sudo.yazi) | Linux | Runs supported file operations through `sudo`. |
 | [system-clipboard.yazi](system-clipboard.yazi) | macOS | Copies files as native macOS clipboard file references. |
-| [trash-empty.yazi](trash-empty.yazi) | Linux | Clears XDG trash and mounted-drive trash locations. |
 | [trash-empty-macos.yazi](trash-empty-macos.yazi) | macOS | Clears native macOS trash locations. |
-| [trash-restore-macos.yazi](trash-restore-macos.yazi) | macOS | Trashes files and restores manifest-backed native macOS trash entries. |
-| [wallpaper.yazi](wallpaper.yazi) | Linux/Wayland | Sets the hovered file through `awww`. |
 | [wallpaper-macos.yazi](wallpaper-macos.yazi) | macOS | Sets the hovered file through `desktoppr`. |
-| [wl-clipboard.yazi](wl-clipboard.yazi) | Linux/Wayland | Copies files to the Wayland clipboard as URI-list data. |
 | [zoom.yazi](zoom.yazi) | Linux, macOS | Enlarges or shrinks the hovered image preview. |
 
 ## Build and test
@@ -44,6 +37,6 @@ stylua --check .
 
 AGPL-3.0-or-later, except for the directories below. See [LICENSE](LICENSE).
 
-Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, restore.yazi (AGPL), system-clipboard.yazi, wl-clipboard.yazi and zoom.yazi.
+Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, system-clipboard.yazi and zoom.yazi.
 
 I ask that this code not be used to train AI models. This is a request, not a license term.
