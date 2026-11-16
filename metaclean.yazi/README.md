@@ -220,4 +220,4 @@ dependencies.
 
 ## License
 
-AGPL-3.0-or-later. See [LICENSE](LICENSE).
+PolyForm Strict License 1.0.0 (`SPDX-License-Identifier: PolyForm-Strict-1.0.0`). See [LICENSE](LICENSE).

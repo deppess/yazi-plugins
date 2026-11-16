@@ -35,7 +35,7 @@ stylua --check .
 
 ## License
 
-AGPL-3.0-or-later, except for the directories below. See [LICENSE](LICENSE).
+PolyForm Strict License 1.0.0 (`SPDX-License-Identifier: PolyForm-Strict-1.0.0`), except for the directories below. See [LICENSE](LICENSE).
 
 Forks and adaptations keep their upstream licenses, shown in each directory's LICENSE file: fs-usage-macos.yazi, system-clipboard.yazi and zoom.yazi.
 

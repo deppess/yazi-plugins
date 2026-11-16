@@ -28,4 +28,4 @@ Note that the keybinding above is just an example, please tune it up as needed t
 
 ## License
 
-This plugin is MIT-licensed. For more information check the [LICENSE](LICENSE) file.
+This plugin is licensed under PolyForm Strict License 1.0.0 (`SPDX-License-Identifier: PolyForm-Strict-1.0.0`). For more information check the [LICENSE](LICENSE) file.

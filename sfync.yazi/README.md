@@ -91,4 +91,4 @@ The plugin parses `~/.config/sfync/config.json` in Lua using balanced-brace patt
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+PolyForm Strict License 1.0.0 (`SPDX-License-Identifier: PolyForm-Strict-1.0.0`) — see [LICENSE](LICENSE).

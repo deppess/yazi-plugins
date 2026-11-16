@@ -24,4 +24,4 @@ This is the macOS counterpart to [wallpaper.yazi](../wallpaper.yazi), which uses
 
 ## License
 
-This plugin is MIT-licensed. See [LICENSE](LICENSE).
+This plugin is licensed under PolyForm Strict License 1.0.0 (`SPDX-License-Identifier: PolyForm-Strict-1.0.0`). See [LICENSE](LICENSE).
