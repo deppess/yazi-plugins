@@ -22,6 +22,7 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 | [sudo.yazi](sudo.yazi) | Linux | Runs supported file operations through `sudo`. |
 | [system-clipboard.yazi](system-clipboard.yazi) | macOS | Copies files as native macOS clipboard file references. |
 | [trash-empty-macos.yazi](trash-empty-macos.yazi) | macOS | Clears native macOS trash locations. |
+| [translate-macos.yazi](translate-macos.yazi) | macOS | Writes translated subtitles for videos with on-device Apple speech and translation models. |
 | [wallpaper-macos.yazi](wallpaper-macos.yazi) | macOS | Sets the hovered file through `desktoppr`. |
 | [zoom.yazi](zoom.yazi) | Linux, macOS | Enlarges or shrinks the hovered image preview. |
 
@@ -31,6 +32,12 @@ Requires [StyLua](https://github.com/JohnnyMorganz/StyLua).
 
 ```sh
 stylua --check .
+```
+
+translate-macos.yazi also has a Swift helper, which needs the Xcode Command Line Tools:
+
+```sh
+translate-macos.yazi/build.sh /tmp/translate
 ```
 
 ## License

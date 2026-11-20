@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: PolyForm-Strict-1.0.0
+//
+// Declarations for Speech's unpublished spoken-language detector, a SpeechAnalyzer
+// module the framework exports but leaves out of its public interface. build.sh
+// appends them to a copy of the SDK's Speech interface; they only describe the
+// framework's own symbols.
+@available(anyAppleOS 26, *)
+@available(watchOS, unavailable)
+public struct ClientInfo : Swift::Hashable, Swift::Sendable {
+  public init(identifier: Swift::String)
+  public static func == (a: Speech::ClientInfo, b: Speech::ClientInfo) -> Swift::Bool
+  public func hash(into hasher: inout Swift::Hasher)
+  public var hashValue: Swift::Int {
+    get
+  }
+}
+@available(anyAppleOS 26, *)
+@available(watchOS, unavailable)
+public enum LanguageDetectorResultReportingFrequency : Swift::Int, Swift::Sendable {
+  case once
+  case everySecond
+  case continuous
+  public init?(rawValue: Swift::Int)
+  public typealias RawValue = Swift::Int
+  public var rawValue: Swift::Int {
+    get
+  }
+}
+@available(anyAppleOS 26, *)
+@available(watchOS, unavailable)
+public struct LanguageDetectorOptions : Swift::Hashable, Swift::Sendable {
+  public init(languageConstraints: [Foundation::Locale]?, alternativeCount: Swift::UInt, resultReportingFrequency: Speech::LanguageDetectorResultReportingFrequency, useVAD: Swift::Bool)
+  public var languageConstraints: [Foundation::Locale]? {
+    get
+  }
+  public var alternativeCount: Swift::UInt {
+    get
+  }
+  public var useVAD: Swift::Bool {
+    get
+  }
+  public static func == (a: Speech::LanguageDetectorOptions, b: Speech::LanguageDetectorOptions) -> Swift::Bool
+  public func hash(into hasher: inout Swift::Hasher)
+  public var hashValue: Swift::Int {
+    get
+  }
+}
+@available(anyAppleOS 26, *)
+@available(watchOS, unavailable)
+public class LanguageDetector : Speech::SpeechModule {
+  public init(options: Speech::LanguageDetectorOptions?, clientInfo: Speech::ClientInfo)
+  public struct LocaleAlternative : Swift::Hashable, Swift::Sendable, Swift::CustomStringConvertible {
+    public var locale: Foundation::Locale {
+      get
+    }
+    public var confidence: Swift::Double {
+      get
+    }
+    public var description: Swift::String {
+      get
+    }
+    public static func == (a: Speech::LanguageDetector.Speech::LocaleAlternative, b: Speech::LanguageDetector.Speech::LocaleAlternative) -> Swift::Bool
+    public func hash(into hasher: inout Swift::Hasher)
+    public var hashValue: Swift::Int {
+      get
+    }
+  }
+  public struct Result : Speech::SpeechModuleResult, Swift::Sendable, Swift::CustomStringConvertible {
+    public var range: CoreMedia::CMTimeRange {
+      get
+    }
+    public var resultsFinalizationTime: CoreMedia::CMTime {
+      get
+    }
+    public var dominantLocale: Foundation::Locale {
+      get
+    }
+    public var alternatives: [Speech::LanguageDetector.Speech::LocaleAlternative] {
+      get
+    }
+    public var description: Swift::String {
+      get
+    }
+  }
+  final public var results: some Swift::Sendable & _Concurrency::AsyncSequence<Speech::LanguageDetector.Speech::Result, any Swift::Error> {
+    get
+  }
+  final public var availableCompatibleAudioFormats: [AVFAudio::AVAudioFormat] {
+    get async
+  }
+  final public var supportedLocales: [Foundation::Locale]? {
+    get async
+  }
+  public typealias Results = @_opaqueReturnTypeOf("$s6Speech16LanguageDetectorC7resultsQrvp", 0) __
+  @objc deinit
+}
