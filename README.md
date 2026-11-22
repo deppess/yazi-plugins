@@ -14,7 +14,7 @@ Source: [Codeberg](https://codeberg.org/deppes/yazi-plugins) (primary) · [GitHu
 
 | Plugin | Platform | Description |
 |---|---|---|
-| [archive-info.yazi](archive-info.yazi) | Linux, macOS | Previews an archive's stats and tests its integrity, including encrypted archives and multi-volume sets. |
+| [archive-info.yazi](archive-info.yazi) | macOS | Previews an archive's stats and tests its integrity, including encrypted archives and multi-volume sets. |
 | [crypter-macos.yazi](crypter-macos.yazi) | macOS | Mounts and locks an encrypted APFS volume at a configured path. |
 | [fs-usage-macos.yazi](fs-usage-macos.yazi) | Linux, macOS | Shows the current filesystem's used space; includes BSD-compatible macOS handling. |
 | [media-search.yazi](media-search.yazi) | Linux, macOS | Searches folders under a configured media-library root. |
