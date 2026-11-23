@@ -1,11 +1,10 @@
 --- @since 26.5.6
 -- Recursive folder search scoped to a media library root. Searches a manual,
 -- disk-persisted index (see `b i`) or -- before the first-ever index build --
--- a single fd walk taken when the search opens (folders only), and shows a
--- read-only panel of the top-N ranked candidates as you type, refreshed on
--- every settled (debounced) keystroke via native ya.input(realtime=true).
--- Enter jumps straight to the top-ranked match: native cd for a folder, no
--- custom picker.
+-- a single fd walk taken when the search opens (folders only), and shows the
+-- ranked candidates in a panel joined to the native ya.input(realtime=true)
+-- box, refreshed on every settled (debounced) keystroke. Enter, a
+-- double-click, or Tab then j/k picks a result: native cd, no custom picker.
 
 local M = {}
 
@@ -168,8 +167,8 @@ end
 -- leave it half-written and a symlink planted at the index path gets
 -- replaced instead of written through.
 local function save_index_to_disk(root, list)
-	local target = Url(index_path(root))
-	local tmp, err = fs.unique("file", Url(index_path(root) .. ".tmp"))
+	local path = index_path(root)
+	local tmp, err = fs.unique("file", Url(path .. ".tmp"))
 	if not tmp then
 		return false, tostring(err)
 	end
@@ -177,7 +176,7 @@ local function save_index_to_disk(root, list)
 	local ok
 	ok, err = fs.write(tmp, #list > 0 and table.concat(list, "\0") .. "\0" or "")
 	if ok then
-		ok, err = fs.rename(tmp, target)
+		ok, err = fs.rename(tmp, Url(path))
 	end
 	if not ok then
 		fs.remove("file", tmp)
@@ -552,15 +551,63 @@ local function rank(session, ctx, groups, limit)
 end
 
 -- ── Live panel (Modal child) ─────────────────────────────────────────────
--- M also acts as the Modal component for the live result panel.
+-- M also acts as the Modal component for the live result panel. It holds
+-- up to RESULT_LIMIT ranked results behind a PANEL_ROWS-tall viewport with
+-- one selected row, driven by the mouse (scroll, click, double-click) and,
+-- once Tab hands it focus, by the keyboard.
 
-local PANEL_LIMIT = 5
+local INPUT_Y, INPUT_H = 2, 3 -- ya.input is always 3 rows tall
 local PANEL_W = 60
-local PANEL_TOP = 6 -- fixed row offset below the input's own pos (y=2)
+local PANEL_ROWS = 8
+local RESULT_LIMIT = 50
+local DOUBLE_CLICK = 0.4 -- max seconds between the clicks of a double-click
+
+-- Keeps the selection in range and the viewport scrolled to it.
+local function clamp_view(state)
+	local n = #(state.panel_lines or {})
+	local sel = math.max(1, math.min(state.panel_sel or 1, n))
+	local top = math.max(1, math.min(state.panel_top or 1, sel))
+	if sel >= top + PANEL_ROWS then
+		top = sel - PANEL_ROWS + 1
+	end
+	state.panel_sel, state.panel_top = sel, top
+end
+
+-- Root forwards clicks and scrolls only while the mgr layer is active, so
+-- they never reach the panel while the input or the results key loop has
+-- focus. Claim just the events that land inside the open panel; everything
+-- else goes to the original handlers untouched.
+local function hook_mouse(state)
+	if state.mouse_hooked then
+		return
+	end
+	state.mouse_hooked = true
+
+	local click, scroll = Root.click, Root.scroll
+	local function hit(event)
+		local area = state.panel_children and state.panel_area
+		return area and area:contains(ui.Rect({ x = event.x, y = event.y }))
+	end
+	function Root:click(event, up)
+		if hit(event) then
+			Root._dragging = nil
+			return M.click(state, event, up)
+		end
+		return click(self, event, up)
+	end
+	function Root:scroll(event, step)
+		if hit(event) then
+			return M.scroll(state, event, step)
+		end
+		return scroll(self, event, step)
+	end
+end
 
 local panel_open = ya.sync(function(state, hint)
-	state.panel_lines = {}
-	state.panel_hint = hint
+	hook_mouse(state)
+	state.panel_lines, state.panel_hint = {}, hint
+	state.panel_sel, state.panel_top, state.panel_focus = 1, 1, false
+	state.panel_picked, state.panel_click, state.focus_wanted = nil, nil, nil
 	if not state.panel_children then
 		state.panel_children = Modal:children_add(state, 10)
 	end
@@ -568,9 +615,43 @@ local panel_open = ya.sync(function(state, hint)
 end)
 
 local panel_set = ya.sync(function(state, lines, hint)
-	state.panel_lines = lines
-	state.panel_hint = hint
+	state.panel_lines, state.panel_hint = lines, hint
+	state.panel_sel, state.panel_top = 1, 1
 	ui.render()
+end)
+
+local panel_move = ya.sync(function(state, step)
+	state.panel_sel = (state.panel_sel or 1) + step
+	clamp_view(state)
+	ui.render()
+end)
+
+local panel_focus = ya.sync(function(state, focused)
+	state.panel_focus = focused
+	ui.render()
+end)
+
+-- The double-clicked row (consumed) and the selected row, if any.
+local panel_take = ya.sync(function(state)
+	local picked = state.panel_picked
+	state.panel_picked = nil
+	return picked, state.panel_lines and state.panel_lines[state.panel_sel or 1]
+end)
+
+-- Tab in the input runs `-- focus`; honored only while this plugin's own
+-- search input is open, so Tab in any other input stays a no-op.
+local request_focus = ya.sync(function(state)
+	if state.panel_children and not state.panel_focus and not state.focus_wanted then
+		state.focus_wanted = true
+		return true
+	end
+	return false
+end)
+
+local take_focus = ya.sync(function(state)
+	local wanted = state.focus_wanted
+	state.focus_wanted = nil
+	return wanted
 end)
 
 local panel_close = ya.sync(function(state)
@@ -578,8 +659,8 @@ local panel_close = ya.sync(function(state)
 		Modal:children_remove(state.panel_children)
 		state.panel_children = nil
 	end
-	state.panel_lines = nil
-	state.panel_hint = nil
+	state.panel_lines, state.panel_hint, state.panel_focus = nil, nil, nil
+	state.panel_picked, state.panel_click, state.focus_wanted = nil, nil, nil
 	ui.render()
 end)
 
@@ -588,30 +669,60 @@ function M:new(area)
 	return self
 end
 
+-- Directly under the input, column for column: this mirrors the top-center
+-- math yazi uses to place the input itself, which ratatui's Fill split can
+-- miss by one on odd widths.
 function M:layout(area)
-	local rows = ui.Layout()
-		:direction(ui.Layout.VERTICAL)
-		:constraints({
-			ui.Constraint.Length(PANEL_TOP),
-			ui.Constraint.Length(PANEL_LIMIT + 2),
-			ui.Constraint.Fill(1),
-		})
-		:split(area)
-
-	local cols = ui.Layout()
-		:direction(ui.Layout.HORIZONTAL)
-		:constraints({
-			ui.Constraint.Fill(1),
-			ui.Constraint.Length(PANEL_W),
-			ui.Constraint.Fill(1),
-		})
-		:split(rows[2])
-
-	self.panel_area = cols[2]
+	local max_x = math.max(0, area.w - PANEL_W)
+	local x = math.min(math.max(0, area.w // 2 - PANEL_W // 2), max_x)
+	local y = INPUT_Y + INPUT_H
+	local rect = ui.Rect({
+		x = area.x + x,
+		y = area.y + y,
+		w = math.min(PANEL_W, area.w - x),
+		h = math.max(0, math.min(PANEL_ROWS + 1, area.h - y)),
+	})
+	-- _area is what Root's hit-testing (ya.child_at) reads on every click.
+	self.panel_area, self._area = rect, rect
 end
 
 function M:reflow()
 	return { self }
+end
+
+function M:scroll(_, step)
+	self.panel_sel = (self.panel_sel or 1) + step
+	clamp_view(self)
+	ui.render()
+end
+
+-- One click selects a row; a second on the same row within DOUBLE_CLICK
+-- opens it, ending whichever loop has focus the way Enter would.
+function M:click(event, up)
+	if up or not event.is_left then
+		return
+	end
+	local offset = event.y - self.panel_area.y
+	local i = (self.panel_top or 1) + offset
+	local lines = self.panel_lines or {}
+	if offset < 0 or offset >= PANEL_ROWS or not lines[i] then
+		return
+	end
+
+	local now, last = ya.time() or 0, self.panel_click
+	self.panel_sel = i
+	clamp_view(self)
+	if last and last.i == i and now - last.t <= DOUBLE_CLICK then
+		self.panel_click, self.panel_picked = nil, lines[i]
+		if tostring(cx.layer) == "which" then
+			ya.emit("which:dismiss", {})
+		else
+			ya.emit("input:close", { submit = true })
+		end
+	else
+		self.panel_click = { i = i, t = now }
+	end
+	ui.render()
 end
 
 local function split_segments(rel)
@@ -683,20 +794,37 @@ end
 function M:redraw()
 	local area = self.panel_area
 	local lines = self.panel_lines or {}
+	local sel, top = self.panel_sel or 1, self.panel_top or 1
 
-	local inner_w = math.max(1, area.w - 4)
+	-- The selected row is what Enter opens: bold while typing, reversed
+	-- once the results have focus.
+	local inner_w = math.max(1, area.w - 2)
 	local body = {}
-	for i = 1, #lines do
-		body[#body + 1] = ui.Line(truncate_path(lines[i], inner_w))
+	for i = top, math.min(#lines, top + PANEL_ROWS - 1) do
+		local line = ui.Line(truncate_path(lines[i], inner_w))
+		if i == sel then
+			line = self.panel_focus and line:reverse() or line:bold()
+		end
+		body[#body + 1] = line
 	end
 	if #body == 0 then
 		body[1] = ui.Line(self.panel_hint or "(no matches)"):dim()
 	end
 
+	-- No top edge: the input's bottom border closes the box from above, and
+	-- the rows line up with the input's own text column.
+	local border = ui.Border(ui.Edge.LEFT | ui.Edge.RIGHT | ui.Edge.BOTTOM)
+		:area(area)
+		:type(ui.Border.ROUNDED)
+		:style(th.input.border)
+	if #lines > 0 then
+		border = border:title(ui.Line(string.format(" %d/%d ", sel, #lines)):align(ui.Align.RIGHT), ui.Edge.BOTTOM)
+	end
+
 	return {
 		ui.Clear(area),
-		ui.Border(ui.Edge.ALL):area(area):type(ui.Border.ROUNDED):style(ui.Style():fg("blue")),
-		ui.Text(body):area(area:pad(ui.Pad(1, 2, 1, 2))):wrap(ui.Wrap.NO),
+		border,
+		ui.Text(body):area(area:pad(ui.Pad(0, 1, 1, 1))):wrap(ui.Wrap.NO),
 	}
 end
 
@@ -710,7 +838,36 @@ local function is_blank(value)
 	return not value or value:match("^%s*$") ~= nil
 end
 
+-- Keys while the results have focus; ya.which returns nil for any other
+-- key, which is simply ignored.
+local RESULT_KEYS = {
+	{ on = "j", act = "down" },
+	{ on = "<Down>", act = "down" },
+	{ on = "k", act = "up" },
+	{ on = "<Up>", act = "up" },
+	{ on = "g", act = "first" },
+	{ on = "G", act = "last" },
+	{ on = "<Enter>", act = "open" },
+	{ on = "<Tab>", act = "edit" },
+	{ on = "<Esc>", act = "cancel" },
+	{ on = "q", act = "cancel" },
+	{ on = "<C-c>", act = "cancel" },
+}
+
+local function open_input(value)
+	return ya.input({
+		title = "Search Media",
+		value = value,
+		pos = { "top-center", y = INPUT_Y, w = PANEL_W },
+		realtime = true,
+		debounce = DEBOUNCE,
+	})
+end
+
 -- Returns the folder to cd into, or nil plus an optional message and level.
+-- Alternates between two focus modes: the native input (typing; Tab ends
+-- it through the `focus` entry) and a silent ya.which loop over the
+-- results (j/k; Tab reopens the input with the same query).
 local function run_search(root)
 	local list, load_err = load_index(root)
 	if load_err then
@@ -719,13 +876,7 @@ local function run_search(root)
 
 	panel_open(list and HINT_TYPE or "Scanning library…")
 
-	local rx = ya.input({
-		title = "Search Media",
-		value = "",
-		pos = { "top-center", y = 2, w = PANEL_W },
-		realtime = true,
-		debounce = DEBOUNCE,
-	})
+	local rx = open_input("")
 
 	-- Without an index, walk once while the user starts typing; keystrokes
 	-- queue up meanwhile and are then served from memory like the index.
@@ -748,48 +899,109 @@ local function run_search(root)
 	local function ranked(query)
 		if query ~= last_query then
 			local exact, partial = filter(session, query, show_hidden)
-			last_query, last_top = query, rank(session, ctx, { exact, partial }, PANEL_LIMIT)
+			last_query, last_top = query, rank(session, ctx, { exact, partial }, RESULT_LIMIT)
 		end
 		return last_top
 	end
 
-	while true do
-		local value, event = rx:recv()
+	-- The query the panel currently shows results for.
+	local query = ""
+	local function show(value)
+		query = value or ""
+		if not session then
+			panel_set({}, "Scan failed")
+		elseif is_blank(query) or #query < MIN_QUERY_LEN then
+			panel_set({}, HINT_TYPE)
+		else
+			panel_set(ranked(query))
+		end
+	end
 
-		if event == 3 then
-			-- Changed values are already debounced by the native input stream.
-			if not session then
-				panel_set({}, "Scan failed")
-			elseif is_blank(value) or #value < MIN_QUERY_LEN then
-				panel_set({}, HINT_TYPE)
-			else
-				panel_set(ranked(value))
+	-- A row the user picked must exist; the implicit top pick instead falls
+	-- through stale index entries rather than reveal a ghost.
+	local function open(rel, fallbacks)
+		local candidates = fallbacks or { rel }
+		for i = 1, #candidates do
+			local target = join(root, candidates[i])
+			local cha = fs.cha(Url(target), false)
+			if cha and cha.is_dir then
+				return target
 			end
-		elseif event == 1 then
-			if is_blank(value) or not session then
+		end
+		return nil, "That folder no longer exists -- rebuild the index", "warn"
+	end
+
+	while true do
+		if rx then
+			local value, event = rx:recv()
+
+			if event == 3 then
+				-- Changed values are already debounced by the native input stream.
+				show(value)
+			elseif event == 1 then
+				local picked, selected = panel_take()
+				if picked then
+					return open(picked)
+				end
+				if is_blank(value) or not session then
+					return nil
+				end
+				-- Enter can beat the debounce, so rank what was submitted.
+				local top = ranked(value)
+				if #top == 0 then
+					return nil, 'No matches for "' .. value .. '"', "warn"
+				end
+				if value ~= query or not selected then
+					selected = top[1]
+				end
+				return open(selected, selected == top[1] and top or nil)
+			elseif event == 2 and take_focus() then
+				rx = nil
+				if value ~= query then
+					show(value)
+				end
+				panel_focus(true)
+			else
+				-- Cancel / escape / unknown error.
 				return nil
 			end
-			local top = ranked(value)
-			if #top == 0 then
-				return nil, 'No matches for "' .. value .. '"', "warn"
-			end
-			-- Fall through stale index entries rather than reveal a ghost.
-			for i = 1, #top do
-				local target = join(root, top[i])
-				local cha = fs.cha(Url(target), false)
-				if cha and cha.is_dir then
-					return target
-				end
-			end
-			return nil, "Top matches no longer exist -- rebuild the index", "warn"
 		else
-			-- Cancel / escape / unknown error.
-			return nil
+			local idx = ya.which({ cands = RESULT_KEYS, silent = true })
+			local act = idx and RESULT_KEYS[idx].act
+			local picked, selected = panel_take()
+
+			if picked then
+				return open(picked)
+			elseif act == "down" then
+				panel_move(1)
+			elseif act == "up" then
+				panel_move(-1)
+			elseif act == "first" then
+				panel_move(-RESULT_LIMIT)
+			elseif act == "last" then
+				panel_move(RESULT_LIMIT)
+			elseif act == "open" and selected then
+				return open(selected)
+			elseif act == "edit" then
+				take_focus()
+				panel_focus(false)
+				rx = open_input(query)
+			elseif act == "cancel" then
+				return nil
+			end
 		end
 	end
 end
 
 function M:entry(job)
+	-- Tab inside the search input (see README): hand focus to the results.
+	if job and job.args and job.args[1] == "focus" then
+		if request_focus() then
+			ya.emit("input:close", {})
+		end
+		return
+	end
+
 	if not get_state(STATE.INITIALIZED) then
 		M:setup()
 	end
