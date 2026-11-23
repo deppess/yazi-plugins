@@ -1,22 +1,28 @@
 --- @since 26.5.6
--- Recursive folder search scoped to a media library root. Runs fd itself
--- (-t d, folders only) either against a manual, disk-persisted index
--- (see `b i`) or -- before the first-ever index build -- a live walk, and
--- shows a read-only panel of the top-N ranked candidates as you type,
--- refreshed on every settled (debounced) keystroke via native
--- ya.input(realtime=true). Enter jumps straight to the top-ranked match:
--- native cd for a folder, no custom picker.
+-- Recursive folder search scoped to a media library root. Searches a manual,
+-- disk-persisted index (see `b i`) or -- before the first-ever index build --
+-- a single fd walk taken when the search opens (folders only), and shows a
+-- read-only panel of the top-N ranked candidates as you type, refreshed on
+-- every settled (debounced) keystroke via native ya.input(realtime=true).
+-- Enter jumps straight to the top-ranked match: native cd for a folder, no
+-- custom picker.
 
 local M = {}
 
 local STATE = {
 	ROOT = "root",
+	ERROR = "error",
 	INITIALIZED = "initialized",
 	INDEX = "index",
 }
 
 -- Keep the index with the library so it follows the library when moved.
 local INDEX_FILENAME = ".media-search-index"
+-- Tens of thousands of folders are a few hundred KB; anything near this
+-- is not an index this plugin wrote.
+local INDEX_MAX_BYTES = 64 * 1024 * 1024
+
+local byte, find, sub = string.byte, string.find, string.sub
 
 local set_state = ya.sync(function(state, key, val)
 	state[key] = val
@@ -29,38 +35,74 @@ local function notify(content, level)
 	ya.notify({ title = "Media Search", content = content, level = level or "info", timeout = 4 })
 end
 
-local function expand_path(path)
-	if path:sub(1, 1) == "~" then
-		return os.getenv("HOME") .. path:sub(2)
+local function normalize_root(path)
+	if type(path) ~= "string" or path == "" then
+		return nil, "root must be a path string"
 	end
-	return path
+	if path == "~" or path:sub(1, 2) == "~/" then
+		local home = os.getenv("HOME")
+		if not home or home == "" then
+			return nil, "HOME is not set, cannot expand " .. path
+		end
+		path = home .. path:sub(2)
+	end
+	if path:sub(1, 1) ~= "/" then
+		return nil, "root must be absolute or start with ~/: " .. path
+	end
+	path = path:gsub("/+$", "")
+	return path ~= "" and path or "/"
+end
+
+local function join(root, rel)
+	return root == "/" and "/" .. rel or root .. "/" .. rel
 end
 
 ---@param opts? {root?: string}
 function M:setup(opts)
-	if opts and type(opts) ~= "table" then
-		return
+	local root, err = "~/Media", nil
+	if opts ~= nil and type(opts) ~= "table" then
+		err = "setup() expects a table"
+	elseif opts and opts.root ~= nil then
+		root = opts.root
 	end
-	local root = (opts and opts.root) or "~/Media"
-	set_state(STATE.ROOT, expand_path(root))
+	if not err then
+		root, err = normalize_root(root)
+	end
+	set_state(STATE.ROOT, root)
+	set_state(STATE.ERROR, err and ("Invalid config: " .. err))
 	set_state(STATE.INITIALIZED, true)
 end
 
--- ── fd ────────────────────────────────────────────────────────────────────
--- Folders only (-t d). Symlinked directories are intentionally excluded.
+-- ── Paths ─────────────────────────────────────────────────────────────────
 
-local function fd_matches(root, query)
+local function split(s, sep, out)
+	local pos, len = 1, #s
+	while pos <= len do
+		local stop = find(s, sep, pos, true) or len + 1
+		if stop > pos then
+			out[#out + 1] = sub(s, pos, stop - 1)
+		end
+		pos = stop + 1
+	end
+	return out
+end
+
+-- Relative, with no empty, "." or ".." segments: anything else would let a
+-- tampered index steer cd outside the root.
+local function valid_rel(rel)
+	return rel ~= "" and byte(rel, 1) ~= 47 and not find("/" .. rel .. "/", "/%.?%.?/")
+end
+
+-- ── fd ────────────────────────────────────────────────────────────────────
+-- Every folder under root, hidden ones included (search filters them per
+-- show_hidden, so index and live results agree), NUL-separated so any legal
+-- name survives. -t d does not match symlinks, so symlinked directories are
+-- intentionally excluded. Sorted, so rebuilds of an unchanged library write
+-- an identical index.
+
+local function fd_walk(root)
 	local out, err = Command("fd")
-		:arg({
-			"--base-directory",
-			root,
-			"--fixed-strings",
-			"-t",
-			"d",
-			rt.mgr.show_hidden and "--hidden" or "--no-hidden",
-			"--",
-			query,
-		})
+		:arg({ "--base-directory", root, "--type", "d", "--hidden", "--print0", "--strip-cwd-prefix" })
 		:stdout(Command.PIPED)
 		:stderr(Command.PIPED)
 		:output()
@@ -73,42 +115,75 @@ local function fd_matches(root, query)
 		return nil, msg ~= "" and msg or "fd exited with an error"
 	end
 
-	local matches = {}
-	for line in out.stdout:gmatch("[^\r\n]+") do
-		matches[#matches + 1] = line:gsub("/+$", "")
+	local list = {}
+	for _, rel in ipairs(split(out.stdout, "\0", {})) do
+		rel = rel:gsub("/+$", "")
+		if valid_rel(rel) then
+			list[#list + 1] = rel
+		end
 	end
-	return matches
+	table.sort(list)
+	return list
 end
 
 -- ── Index (manual, -- see `b i`) ─────────────────────────────────────────
--- Flat, newline-delimited relative paths -- the same shape fd_matches
--- already returns -- so a cached list plugs straight into rank_matches
--- with no format translation. No JSON/serialization: this is just a plain
--- list of short strings, even tens of thousands of them cost a few hundred
--- KB uncompressed, not worth the code to compress.
+-- NUL-terminated relative paths, the same list fd_walk returns. Indexes
+-- from older versions were newline-separated and still load.
 
-local function index_url(root)
-	return root .. "/" .. INDEX_FILENAME
+local function index_path(root)
+	return join(root, INDEX_FILENAME)
 end
 
 local function load_index_from_disk(root)
-	local f = io.open(index_url(root), "r")
-	if not f then
+	local path = index_path(root)
+	local cha = fs.cha(Url(path), false)
+	if not cha then
 		return nil
 	end
+	if cha.is_link or cha.is_dir or cha.is_block or cha.is_char or cha.is_fifo or cha.is_sock then
+		return nil, "Index is not a regular file, ignoring it"
+	end
+	if (cha.len or 0) > INDEX_MAX_BYTES then
+		return nil, "Index is too large, ignoring it"
+	end
+
+	local f = io.open(path, "rb")
+	if not f then
+		return nil, "Cannot read index"
+	end
+	local data = f:read("a") or ""
+	f:close()
+
+	local sep = find(data, "\0", 1, true) and "\0" or "\n"
 	local list = {}
-	for line in f:lines() do
-		if line ~= "" then
-			list[#list + 1] = line
+	for _, rel in ipairs(split(data, sep, {})) do
+		if valid_rel(rel) then
+			list[#list + 1] = rel
 		end
 	end
-	f:close()
 	return #list > 0 and list or nil
 end
 
+-- Written to a fresh temp file and renamed over the index, so a crash can't
+-- leave it half-written and a symlink planted at the index path gets
+-- replaced instead of written through.
 local function save_index_to_disk(root, list)
-	local ok, err = fs.write(Url(index_url(root)), table.concat(list, "\n"))
-	return ok, err and tostring(err)
+	local target = Url(index_path(root))
+	local tmp, err = fs.unique("file", Url(index_path(root) .. ".tmp"))
+	if not tmp then
+		return false, tostring(err)
+	end
+
+	local ok
+	ok, err = fs.write(tmp, #list > 0 and table.concat(list, "\0") .. "\0" or "")
+	if ok then
+		ok, err = fs.rename(tmp, target)
+	end
+	if not ok then
+		fs.remove("file", tmp)
+		return false, tostring(err)
+	end
+	return true
 end
 
 -- Load once per session so the input loop does not repeatedly read disk.
@@ -117,17 +192,16 @@ local function load_index(root)
 	if index then
 		return index
 	end
-	index = load_index_from_disk(root)
+	local err
+	index, err = load_index_from_disk(root)
 	if index then
 		set_state(STATE.INDEX, index)
 	end
-	return index
+	return index, err
 end
 
 -- Counts added/removed paths between two index snapshots via two hash
--- sets (O(old+new), same cost class as the filter itself -- negligible
--- even at tens of thousands of entries). Only ever called once per manual
--- `b i` press, never on the per-keystroke hot path.
+-- sets (O(old+new)). Only ever called once per manual `b i` press.
 local function diff_counts(old, new)
 	local old_set, new_set = {}, {}
 	for i = 1, #old do
@@ -151,80 +225,74 @@ local function diff_counts(old, new)
 	return added, removed
 end
 
--- Rebuilds the index from a live fd walk (fd_matches with an empty
--- pattern lists everything -- verified against the real binary), updates
--- the in-memory copy unconditionally, and persists it to disk best-effort:
--- if the write fails (read-only mount, permissions), the session still
--- gets the speed benefit, it just won't survive a restart. added/removed
--- are nil on the first-ever build (nothing to diff against yet).
+-- Rebuilds the index from a live fd walk, updates the in-memory copy
+-- unconditionally, and persists it to disk best-effort: if the write fails
+-- (read-only mount, permissions), the session still gets the speed
+-- benefit, it just won't survive a restart. added/removed are nil on the
+-- first-ever build (nothing to diff against yet).
 local function reindex(root)
 	local previous = load_index(root)
 
-	local matches, err = fd_matches(root, "")
-	if not matches then
+	local list, err = fd_walk(root)
+	if not list then
 		return nil, err
 	end
-	set_state(STATE.INDEX, matches)
-	local ok, werr = save_index_to_disk(root, matches)
+	set_state(STATE.INDEX, list)
+	local ok, werr = save_index_to_disk(root, list)
 
 	local added, removed
 	if previous then
-		added, removed = diff_counts(previous, matches)
+		added, removed = diff_counts(previous, list)
 	end
-	return matches, (not ok) and werr or nil, added, removed
+	return list, (not ok) and werr or nil, added, removed
 end
 
--- Lowercased once per session alongside the index, not once per keystroke.
--- Case-insensitive filtering (the common case -- no uppercase in query) is
--- by far the more frequent path across a session's worth of keystrokes as
--- a query gets refined, so re-lowering all N entries on every single
--- filter call would repeat identical work many times over.
-local function lower_index(index)
-	local lower = {}
-	for i = 1, #index do
-		lower[i] = index[i]:lower()
+-- ── Search session ────────────────────────────────────────────────────────
+-- Basenames, their lowercase form, depth and hidden-ness are derived once
+-- when the search opens, so each keystroke is one pass of plain finds.
+
+local function build_session(list)
+	local base, lower, depth, hidden = {}, {}, {}, {}
+	for i = 1, #list do
+		local rel = list[i]
+		local d, last, pos = 1, 0, 1
+		while true do
+			local s = find(rel, "/", pos, true)
+			if not s then
+				break
+			end
+			d, last, pos = d + 1, s, s + 1
+		end
+		local name = last > 0 and sub(rel, last + 1) or rel
+		base[i], lower[i], depth[i] = name, name:lower(), d
+		hidden[i] = byte(rel, 1) == 46 or find(rel, "/.", 1, true) ~= nil
 	end
-	return lower
+	return { rel = list, base = base, lower = lower, depth = depth, hidden = hidden }
 end
 
-local function filter_index(index, index_lower, query)
-	local matches = {}
-	if query:find("%u") then
-		for i = 1, #index do
-			if index[i]:find(query, 1, true) then
-				matches[#matches + 1] = index[i]
+-- Matches the folder name only, smart-case, like fd's own default. Exact
+-- name matches are kept apart so they rank ahead of substring matches.
+local function filter(session, query, show_hidden)
+	local sensitive = query:find("%u") ~= nil
+	local names = sensitive and session.base or session.lower
+	local needle = sensitive and query or query:lower()
+	local hidden = session.hidden
+
+	local exact, partial = {}, {}
+	for i = 1, #names do
+		if show_hidden or not hidden[i] then
+			local name = names[i]
+			if name == needle then
+				exact[#exact + 1] = i
+			elseif find(name, needle, 1, true) then
+				partial[#partial + 1] = i
 			end
 		end
-	else
-		local needle = query:lower()
-		for i = 1, #index do
-			if index_lower[i]:find(needle, 1, true) then
-				matches[#matches + 1] = index[i]
-			end
-		end
 	end
-	return matches
+	return exact, partial
 end
 
--- Matches from the (already-loaded-this-session) index when one exists,
--- falling back to a live fd_matches call otherwise -- so search always
--- works even before the first-ever `b i`, just slower until then.
-local function get_matches(root, query, index, index_lower)
-	if index then
-		return filter_index(index, index_lower, query)
-	end
-	return fd_matches(root, query)
-end
-
-local function split_segments(rel)
-	local segs = {}
-	for seg in rel:gmatch("[^/]+") do
-		segs[#segs + 1] = seg
-	end
-	return segs
-end
-
--- ── Native-order tiebreak (identical to media-search.yazi) ──────────────
+-- ── Native-order tiebreak (mirrors yazi's own natural sort) ─────────────
 
 local function is_digit(s, i)
 	local c = s:byte(i)
@@ -341,15 +409,38 @@ local function natural_cmp(cfg, a, b)
 	return natsort(a, b, not cfg.sensitive)
 end
 
--- Extension and size do not provide meaningful ordering for directories.
-local function compare_names(cfg, name_a, name_b, path_a, path_b, stat)
-	if cfg.by == "none" or cfg.by == "random" then
-		return 0
+-- Byte range of the first segment where two same-depth paths differ, found
+-- in place so ranking never splits paths into tables.
+local function diverge(a, b)
+	local n = #a < #b and #a or #b
+	local i, start = 1, 1
+	while i <= n do
+		local c = byte(a, i)
+		if c ~= byte(b, i) then
+			break
+		end
+		if c == 47 then
+			start = i + 1
+		end
+		i = i + 1
 	end
+	local stop_a = (find(a, "/", start, true) or #a + 1) - 1
+	local stop_b = (find(b, "/", start, true) or #b + 1) - 1
+	return start, stop_a, stop_b
+end
+
+-- Compares at the first diverging segment, the way the two folders would
+-- sort side by side in yazi. Extension and size do not provide meaningful
+-- ordering for directories; "none" and "random" use the fallback so the
+-- winner is the same on every run.
+local function compare_rel(ctx, a, b)
+	local cfg = ctx.cfg
+	local start, stop_a, stop_b = diverge(a, b)
+	local name_a, name_b = sub(a, start, stop_a), sub(b, start, stop_b)
 
 	local ord = 0
 	if cfg.by == "mtime" or cfg.by == "btime" then
-		local ca, cb = stat(path_a), stat(path_b)
+		local ca, cb = ctx.stat(join(ctx.root, sub(a, 1, stop_a))), ctx.stat(join(ctx.root, sub(b, 1, stop_b)))
 		local va, vb = (ca and ca[cfg.by]) or 0, (cb and cb[cfg.by]) or 0
 		ord = (va == vb) and 0 or (va < vb and -1 or 1)
 	elseif cfg.by == "alphabetical" then
@@ -361,22 +452,14 @@ local function compare_names(cfg, name_a, name_b, path_a, path_b, stat)
 	if ord == 0 then
 		ord = (cfg.fallback == "natural") and natural_cmp(cfg, name_a, name_b) or alpha_cmp(cfg, name_a, name_b)
 	end
+	if ord == 0 and name_a ~= name_b then
+		ord = name_a < name_b and -1 or 1
+	end
 
 	return cfg.reverse and -ord or ord
 end
 
-local function compare_paths(cfg, root, entry_a, entry_b, stat)
-	local segs_a, segs_b = entry_a.segs, entry_b.segs
-	for i = 1, #segs_a do
-		if segs_a[i] ~= segs_b[i] then
-			local path_a = root .. "/" .. table.concat(segs_a, "/", 1, i)
-			local path_b = root .. "/" .. table.concat(segs_b, "/", 1, i)
-			return compare_names(cfg, segs_a[i], segs_b[i], path_a, path_b, stat)
-		end
-	end
-	return 0
-end
-
+-- Cached for the whole search: mtimes don't move while you type.
 local function make_stat_cache()
 	local cache = {}
 	return function(path)
@@ -385,78 +468,85 @@ local function make_stat_cache()
 			v = fs.cha(Url(path), false) or false
 			cache[path] = v
 		end
-		if v == false then
-			return nil
-		end
-		return v
+		return v or nil
 	end
 end
 
-local function smart_case_eq(name, query, query_lower, query_has_upper)
-	if query_has_upper then
-		return name == query
-	end
-	return name:lower() == query_lower
-end
-
--- The preview and Enter use the same ranking, keeping the first result stable.
-
-local function entry_less(cfg, root, stat, a, b)
-	local da, db = #a.segs, #b.segs
-	if da ~= db then
-		return da < db
-	end
-	return compare_paths(cfg, root, a, b, stat) < 0
-end
-
-local function rank_matches(root, matches, query, limit)
-	local query_has_upper = query:find("%u") ~= nil
-	local query_lower = not query_has_upper and query:lower() or nil
-
-	local n = #matches
-	local entries = {}
-	local has_exact = false
-	for i = 1, n do
-		local rel = matches[i]
-		local segs = split_segments(rel)
-		local exact = smart_case_eq(segs[#segs], query, query_lower, query_has_upper)
-		entries[i] = { rel = rel, segs = segs, exact = exact }
-		has_exact = has_exact or exact
-	end
-
-	local cfg = {
-		by = rt.mgr.sort_by,
-		sensitive = rt.mgr.sort_sensitive,
-		reverse = rt.mgr.sort_reverse,
-		fallback = rt.mgr.sort_fallback,
+local function new_rank_ctx(root)
+	return {
+		root = root,
+		stat = make_stat_cache(),
+		cfg = {
+			by = rt.mgr.sort_by,
+			sensitive = rt.mgr.sort_sensitive,
+			reverse = rt.mgr.sort_reverse,
+			fallback = rt.mgr.sort_fallback,
+		},
 	}
-	local stat = make_stat_cache()
+end
 
-	-- Avoid table.sort because filesystem metadata lookup may yield.
+-- Keeps the k smallest ids by insertion; one comparison rejects anything
+-- that can't make the cut. Avoids table.sort because the filesystem
+-- metadata lookup may yield.
+local function top_k(ids, k, less)
 	local top = {}
-	for i = 1, n do
-		local e = entries[i]
-		if not has_exact or e.exact then
-			local pos = #top + 1
-			for j = #top, 1, -1 do
-				if entry_less(cfg, root, stat, e, top[j]) then
-					pos = j
-				else
-					break
-				end
+	for n = 1, #ids do
+		local id = ids[n]
+		local pos = #top + 1
+		while pos > 1 and less(id, top[pos - 1]) do
+			pos = pos - 1
+		end
+		if pos <= k then
+			table.insert(top, pos, id)
+			if #top > k then
+				top[#top] = nil
 			end
-			if pos <= limit then
-				table.insert(top, pos, e)
-				if #top > limit then
-					table.remove(top)
-				end
+		end
+	end
+	return top
+end
+
+-- Exact name matches first, then shallowest first, then yazi's sort order.
+-- Groups are bucketed by depth so only the buckets that can still fill the
+-- limit are ever compared (or stat'ed).
+local function rank(session, ctx, groups, limit)
+	local rel, depth = session.rel, session.depth
+	local function less(i, j)
+		return compare_rel(ctx, rel[i], rel[j]) < 0
+	end
+
+	local out = {}
+	for g = 1, #groups do
+		if #out >= limit then
+			break
+		end
+		local ids, buckets, depths = groups[g], {}, {}
+		for n = 1, #ids do
+			local d = depth[ids[n]]
+			local bucket = buckets[d]
+			if not bucket then
+				bucket = {}
+				buckets[d] = bucket
+				depths[#depths + 1] = d
+			end
+			bucket[#bucket + 1] = ids[n]
+		end
+		table.sort(depths)
+		for n = 1, #depths do
+			local need = limit - #out
+			if need <= 0 then
+				break
+			end
+			local top = top_k(buckets[depths[n]], need, less)
+			for k = 1, #top do
+				out[#out + 1] = top[k]
 			end
 		end
 	end
 
 	local result = {}
-	for i = 1, #top do
-		result[i] = top[i].rel
+	for i = 1, #out do
+		result[i] = rel[out[i]]
 	end
 	return result
 end
@@ -468,16 +558,18 @@ local PANEL_LIMIT = 5
 local PANEL_W = 60
 local PANEL_TOP = 6 -- fixed row offset below the input's own pos (y=2)
 
-local panel_open = ya.sync(function(state)
+local panel_open = ya.sync(function(state, hint)
 	state.panel_lines = {}
+	state.panel_hint = hint
 	if not state.panel_children then
 		state.panel_children = Modal:children_add(state, 10)
 	end
 	ui.render()
 end)
 
-local panel_set = ya.sync(function(state, lines)
+local panel_set = ya.sync(function(state, lines, hint)
 	state.panel_lines = lines
+	state.panel_hint = hint
 	ui.render()
 end)
 
@@ -487,6 +579,7 @@ local panel_close = ya.sync(function(state)
 		state.panel_children = nil
 	end
 	state.panel_lines = nil
+	state.panel_hint = nil
 	ui.render()
 end)
 
@@ -521,6 +614,14 @@ function M:reflow()
 	return { self }
 end
 
+local function split_segments(rel)
+	local segs = {}
+	for seg in rel:gmatch("[^/]+") do
+		segs[#segs + 1] = seg
+	end
+	return segs
+end
+
 -- First Unicode codepoint of s, as a string -- not just the first byte,
 -- which would corrupt multi-byte UTF-8 sequences for non-ASCII names.
 local function first_char(s)
@@ -550,7 +651,7 @@ end
 -- basename is ever touched, and the basename itself is the last resort.
 local function truncate_path(rel, max_w)
 	local segs = split_segments(rel)
-	local basename = segs[#segs]
+	local basename = segs[#segs] or rel
 
 	local abbrev = basename
 	if #segs > 1 then
@@ -589,7 +690,7 @@ function M:redraw()
 		body[#body + 1] = ui.Line(truncate_path(lines[i], inner_w))
 	end
 	if #body == 0 then
-		body[1] = ui.Line("(no matches)"):dim()
+		body[1] = ui.Line(self.panel_hint or "(no matches)"):dim()
 	end
 
 	return {
@@ -602,36 +703,118 @@ end
 -- ── Entry ─────────────────────────────────────────────────────────────────
 
 local MIN_QUERY_LEN = 2
-local DEBOUNCE_INDEXED = 0.1 -- real work is ~ms with an index, can be snappy
-local DEBOUNCE_LIVE = 0.25 -- conservative: each trigger may spawn fd (~100s of ms)
+local DEBOUNCE = 0.1 -- every keystroke is an in-memory filter, never a walk
+local HINT_TYPE = "Type at least " .. MIN_QUERY_LEN .. " characters"
 
 local function is_blank(value)
 	return not value or value:match("^%s*$") ~= nil
+end
+
+-- Returns the folder to cd into, or nil plus an optional message and level.
+local function run_search(root)
+	local list, load_err = load_index(root)
+	if load_err then
+		notify(load_err .. " -- scanning live instead", "warn")
+	end
+
+	panel_open(list and HINT_TYPE or "Scanning library…")
+
+	local rx = ya.input({
+		title = "Search Media",
+		value = "",
+		pos = { "top-center", y = 2, w = PANEL_W },
+		realtime = true,
+		debounce = DEBOUNCE,
+	})
+
+	-- Without an index, walk once while the user starts typing; keystrokes
+	-- queue up meanwhile and are then served from memory like the index.
+	local walk_err
+	if not list then
+		list, walk_err = fd_walk(root)
+		if walk_err then
+			notify("Scan failed: " .. walk_err, "error")
+		end
+		panel_set({}, walk_err and "Scan failed" or HINT_TYPE)
+	end
+
+	local session = list and build_session(list)
+	local ctx = new_rank_ctx(root)
+	local show_hidden = rt.mgr.show_hidden
+
+	-- The submitted query is almost always the last previewed one, so
+	-- Enter reuses that ranking instead of filtering again.
+	local last_query, last_top
+	local function ranked(query)
+		if query ~= last_query then
+			local exact, partial = filter(session, query, show_hidden)
+			last_query, last_top = query, rank(session, ctx, { exact, partial }, PANEL_LIMIT)
+		end
+		return last_top
+	end
+
+	while true do
+		local value, event = rx:recv()
+
+		if event == 3 then
+			-- Changed values are already debounced by the native input stream.
+			if not session then
+				panel_set({}, "Scan failed")
+			elseif is_blank(value) or #value < MIN_QUERY_LEN then
+				panel_set({}, HINT_TYPE)
+			else
+				panel_set(ranked(value))
+			end
+		elseif event == 1 then
+			if is_blank(value) or not session then
+				return nil
+			end
+			local top = ranked(value)
+			if #top == 0 then
+				return nil, 'No matches for "' .. value .. '"', "warn"
+			end
+			-- Fall through stale index entries rather than reveal a ghost.
+			for i = 1, #top do
+				local target = join(root, top[i])
+				local cha = fs.cha(Url(target), false)
+				if cha and cha.is_dir then
+					return target
+				end
+			end
+			return nil, "Top matches no longer exist -- rebuild the index", "warn"
+		else
+			-- Cancel / escape / unknown error.
+			return nil
+		end
+	end
 end
 
 function M:entry(job)
 	if not get_state(STATE.INITIALIZED) then
 		M:setup()
 	end
+	local config_err = get_state(STATE.ERROR)
+	if config_err then
+		notify(config_err, "error")
+		return
+	end
 	local root = get_state(STATE.ROOT)
 
-	local cha = fs.cha(Url(root), false)
+	-- Follow links here: a root that is itself a symlink to the library is fine.
+	local cha = fs.cha(Url(root), true)
 	if not cha or not cha.is_dir then
 		notify("Media root not found: " .. root, "error")
 		return
 	end
 
 	if job and job.args and job.args[1] == "reindex" then
-		local matches, err, added, removed = reindex(root)
-		if not matches then
+		local list, err, added, removed = reindex(root)
+		if not list then
 			notify("Reindex failed: " .. tostring(err), "error")
 			return
 		end
 
-		-- One notification either way -- added/removed are nil on the very
-		-- first build (nothing to diff against), so that case just shows
-		-- the total, exactly as before.
-		local summary = string.format("Indexed %d folders", #matches)
+		local summary = string.format("Indexed %d folders", #list)
 		if added or removed then
 			summary = summary .. string.format(" (+%d, -%d)", added or 0, removed or 0)
 		end
@@ -643,76 +826,15 @@ function M:entry(job)
 		return
 	end
 
-	-- The index and its lowercase form remain stable for one input session.
-	local index = load_index(root)
-	local index_lower = index and lower_index(index)
-
-	panel_open()
-
-	local rx = ya.input({
-		title = "Search Media",
-		value = "",
-		pos = { "top-center", y = 2, w = PANEL_W },
-		realtime = true,
-		debounce = index and DEBOUNCE_INDEXED or DEBOUNCE_LIVE,
-	})
-
-	-- Debounce settles well before a human can react and hit Enter, so the
-	-- submitted query is almost always identical to the last live-previewed
-	-- one -- caching that last successful (query, matches) pair here skips
-	-- a redundant fd spawn (or, now, a redundant index filter pass) on
-	-- submit in the common case. Only ever reused on an exact query match;
-	-- any mismatch or prior failure falls back to a fresh call, so this
-	-- can't serve stale data.
-	local last_query, last_matches
-
-	while true do
-		local value, event = rx:recv()
-
-		if event == 3 then
-			-- Changed values are already debounced by the native input stream.
-			if is_blank(value) or #value < MIN_QUERY_LEN then
-				panel_set({})
-			else
-				local matches = get_matches(root, value, index, index_lower)
-				last_query, last_matches = matches and value or nil, matches
-				if not matches or #matches == 0 then
-					panel_set({})
-				else
-					panel_set(rank_matches(root, matches, value, PANEL_LIMIT))
-				end
-			end
-		elseif event == 1 then
-			-- Submit the highest-ranked match.
-			panel_close()
-			if not is_blank(value) then
-				local matches, err
-				if value == last_query then
-					matches = last_matches
-				else
-					matches, err = get_matches(root, value, index, index_lower)
-				end
-				if not matches then
-					notify(err or "Failed to start fd", "error")
-				elseif #matches == 0 then
-					notify('No matches for "' .. value .. '"', "warn")
-				else
-					local winner = rank_matches(root, matches, value, 1)[1]
-					local target = root .. "/" .. winner
-					local target_cha = fs.cha(Url(target), false)
-					if target_cha and target_cha.is_dir then
-						ya.emit("cd", { target })
-					else
-						ya.emit("reveal", { target })
-					end
-				end
-			end
-			break
-		else
-			-- Cancel / escape / unknown error.
-			panel_close()
-			break
-		end
+	-- Always tear the panel down, even if the search loop throws.
+	local ok, target, msg, level = pcall(run_search, root)
+	panel_close()
+	if not ok then
+		notify("Search failed: " .. tostring(target), "error")
+	elseif target then
+		ya.emit("cd", { target })
+	elseif msg then
+		notify(msg, level)
 	end
 end
 
